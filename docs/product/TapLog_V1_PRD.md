@@ -4,7 +4,7 @@
 **Platform:** Android
 **Version:** V1
 **Product Type:** Local-first personal event logging application
-**Status:** Product Definition / PRD (Final — Revision 2)
+**Status:** Product Definition / PRD (Final — Revision 3; onaylı mimari netleştirmeleri, 2026-09-15)
 
 ---
 
@@ -166,7 +166,7 @@ Bu, TapLog'un "sadece tanımlamak" ile "gerçekleştiğini kaydetmek" arasındak
 
 * Doğal dil girdisi **geçmiş zaman / tamamlanmış eylem** bildiriyorsa (örn. *"kahve içtim"*, *"salon bitkisini suladım"*, *"çamaşırı başlattım"*), ilgili Record henüz yoksa **Record ve ilk Event tek işlemde birlikte oluşturulur.** Record zaten varsa, doğrudan yeni bir Event oluşturulur.
 * Doğal dil girdisi **yalnızca bir isim/kavram** içeriyorsa (örn. *"Kahve"*), bu ifade behavior ve niyet açısından belirsizdir. Bu durumda kullanıcıya yalnızca Record tanımlamak ile hemen bir Event de kaydetmek arasında minimal bir seçim sunulabilir.
-* Bu ayrım, Section 26 (Ambiguous Input) ile birlikte çalışır: TapLog belirsiz durumlarda sessizce bir tarafı seçmez.
+* Bu ayrım, Section 27 (Ambiguous Input) ile birlikte çalışır: TapLog belirsiz durumlarda sessizce bir tarafı seçmez.
 
 Bu kural, Record oluşturma UX'inin geri kalanının (behavior seçimi, target eşleştirme, manuel fallback) tutarlı şekilde davranmasını sağlar.
 
@@ -286,7 +286,7 @@ Bir Target-Mode NFC'nin bağlı olduğu Target hâlâ **ACTIVE** olabilir, ama o
 >
 > **[Kayıt oluştur]** · **[Vazgeç]**
 
-Bu, ORPHANED durumunun yalnızca Record/Target'ın kendisi archive edildiğinde tetiklendiğini, "geçici olarak aksiyonsuz kalma" durumundan ayrı tutulduğunu netleştirir.
+Bu, Target-Mode bağlantısının yalnızca aktif aksiyon listesi boşaldığı için ORPHANED olmayacağını netleştirir. Belirli Record + Target kombinasyonuna bağlı Action Button için unlink sonucu Section 44.1'de tanımlıdır.
 
 ---
 
@@ -417,7 +417,7 @@ Yüksek miktarda veya hassas veri içeren durumlarda ek confirmation (örn. isim
 
 # 32. Duration Event Integrity
 
-Bir Duration Event başladıktan sonra Record veya Target arşivlenir/silinirse Event geçmişi korunur. Event, OPEN durumunda kalıp **INCOMPLETE** haline gelebilir.
+Bir Duration Event başladıktan sonra Record veya Target arşivlenirse ya da ilgili Record–Target bağı kaldırılırsa Event geçmişi korunur. OPEN Event, bitiş zamanı boş kalacak şekilde **INCOMPLETE** durumuna geçer; artık OPEN değildir. Açıkça onaylanan **kalıcı silme** bunun istisnasıdır: Section 31 uyarınca ilgili Event geçmişi de kaldırılır.
 
 INCOMPLETE terminal bir durumdur. TapLog gerçek bir bitiş zamanı bilmiyorsa herhangi bir bitiş zamanı uydurmaz. Record daha sonra tekrar aktif edilse bile eski INCOMPLETE Event yeniden OPEN haline gelmez.
 
@@ -539,7 +539,7 @@ V1'in parçası olmayan ama ürün vizyonunda yer alabilecekler:
 **Target**
 * Target bağımsız oluşturulabilir ve birden fazla Record ile ilişkilendirilebilir.
 * Record, Target olmadan kullanılabilir. Target bağı (unlink) kaldırılabilir.
-* Target silindiğinde/arşivlendiğinde geçmiş Event verileri korunur.
+* Target arşivlendiğinde veya Record–Target bağı kaldırıldığında geçmiş Event verileri korunur. Açıkça onaylanan kalıcı Target silme, yalnızca o Target'a bağlı Event geçmişini ve ilgili verileri kaldırır (Section 31).
 
 **Behavior**
 * Moment, Counter, Duration, State desteklenir.
@@ -569,20 +569,43 @@ V1'in parçası olmayan ama ürün vizyonunda yer alabilecekler:
 
 ---
 
-# 44. Technical TBD
+# 44. Technical Design Decisions (TBD resolved)
 
 Bu PRD'nin dışında bırakılan, ayrı bir **Technical Design** aşamasında kararlaştırılacak konular:
 
 * Database schema / entity-tablo tasarımı
 * Android architecture, Event Engine implementation
 * Exact NFC NDEF implementation
-* **Widget ve Quick Settings binding'lerinin NFC'dekine benzer bir ORPHANED/lifecycle durumuna sahip olup olmayacağı** — henüz ürün kararı verilmedi, unutulmaması için burada tutuluyor.
+* **Widget ve Quick Settings binding yaşam döngüsü** — ürün kararı Section 44.1'de, teknik sözleşme aşağıda bağlantısı verilen tasarımda çözümlenmiştir.
 * Quick Settings TileService implementation
 * Gemini Nano entegrasyon mimarisi
 * Parser algoritması ve fuzzy matching algoritması
 * Notification implementation, background execution ayrıntıları
 * Exact encryption implementation, backup file internals
 * UI component architecture, test architecture
+
+Bu başlıkların onaylı teknik çözümü [TapLog V1 mimari planında](../../specs/001-v1-architecture/plan.md), gerekçeleri [karar kaydında](../../specs/001-v1-architecture/research.md) yer alır. Bunlar uygulamanın tamamlandığı veya cihaz testlerinin geçtiği anlamına gelmez.
+
+## 44.1 Onaylı Ürün Netleştirmeleri — 2026-09-15
+
+Bu bölüm, mimari brainstorming sırasında kullanıcı tarafından tek tek kabul edilen ve bütünleşik taslakla birlikte yazıya aktarılması onaylanan kararları kaydeder. Teknik araç seçimleri PRD'ye taşınmamıştır.
+
+1. **Silme:** Arşivleme/unlink geçmişi korur. Açıkça onaylanan kalıcı silme ilgili geçmişi de kaldırır; Section 32/43'ün önceki “silme” ifadeleri normal yönetim ile kalıcı silmeyi karıştırmayacak şekilde düzeltilmiştir.
+2. **Duration kapsamı:** Record + isteğe bağlı Target başına tek OPEN Event vardır; hedefsiz kullanım ayrı bağlamdır. Farklı Target'larda eşzamanlı süreler olabilir.
+3. **Duration aksiyonu:** Hızlı buton açık süre yoksa başlatır, varsa bitirir. Doğal dildeki açık başlat/bitir niyeti ters aksiyona çevrilmez. Mevcut açık süreyle çakışan geçmiş başlangıç düzeltme gerektirir. Süreç kapanması/yeniden başlatma süreyi INCOMPLETE yapmaz.
+4. **State kapsamı:** State Group + isteğe bağlı Target başına tek mevcut durum vardır. Aynı durumu tekrar bildirmek yeni Event oluşturur. Geçmiş düzeltmeleri mevcut duruma yansır. Aktif State'in Kaydı arşivlenince durum temizlenir; önceki durum veya unarchive edilen durum kendiliğinden aktifleşmez.
+5. **Unlink:** Kaldırılan Record + Target kombinasyonu yeni işlem için kullanılamaz; ona bağlı butonlar ORPHANED, açık Duration INCOMPLETE olur. Taraflar ve geçmiş korunur.
+6. **Dijital butonlar:** Her Widget tek aksiyon içerir; birden fazla Widget eklenebilir. Tek yapılandırılabilir Quick Settings Tile sunulur. Arşivleme/unlink bağlantıyı ORPHANED yapar; yeniden etkinleştirme otomatik bağlamaz.
+7. **Geçmiş anlamı:** Event olay anındaki Record/Target ad ve ikonunu korur. İlk Event sonrası Record davranışı değişmez. Sonraki değişiklikle çakışan eski Undo uygulanmaz; Timeline düzeltmesi sunulur.
+8. **Counter:** Pozitif tam/ondalık miktar desteklenir; sıfır/negatif kabul edilmez. Record başına isteğe bağlı tek birim vardır; ilk Event sonrası birim sabittir, otomatik dönüşüm yoktur. Varsayılan miktar başlangıçta 1'dir, değiştirilebilir ve bütün hızlı kanallarda kullanılır; açık miktar yalnızca ilgili işlem için varsayılanı geçersiz kılar.
+9. **Dil/zaman:** V1 deterministik parser Türkçedir. Zaman belirtilmezse giriş anı kullanılır. “İki saat önce” ve “dün saat 15.00” gibi açık ifadeler desteklenir; “dün” gibi saatsiz ifadede saat sorulur. Tek kesin isim eşleşmesi kullanılabilir; yaklaşık eşleşme onaylanır, yalnız isimde niyet ayrıca netleştirilir.
+10. **AI:** Deterministik çözüm yetersizse desteklenen cihazda öneri sağlar. Doğrulama/onay atlanmaz, AI yokluğunda manuel netleştirme çalışır.
+11. **NFC geri bildirimi:** Bildirim kullanılamadığında kayıt devam eder; kısa uygulama içi sonuç ve Undo sunulur. Heads-up görünüm garanti edilmez.
+12. **Yedek/import:** Dijital Widget/Tile kurulumları ve Pro hakkı taşınmaz; overwrite sonrası mevcut dijital butonlar yeniden bağlama ister. NFC eşlemeleri, tarihsel bilgiler ve kullanıcı ayarları taşınır.
+13. **Dağıtım/hak:** V1 Google Play üzerinden tek seferlik Pro sunar. TapLog satın alma sunucusu yoktur. Geçici bağlantı hatası mevcut Pro hakkını kaldırmaz. Doğrulanmış hak kaybı veya import nedeniyle limit aşılırsa kullanıcı çalışacak beş NFC butonunu seçer; diğer eşlemeler silinmeden limit nedeniyle pasif tutulur, ORPHANED sayılmaz. Seçim tamamlanana kadar NFC kayıt yerine seçim ekranına yönlendirir; diğer kanallar çalışır.
+14. **Platform/veri:** Minimum Android 8.0'dır. Kişisel veri için kontrollü aktarım yolu parolalı manuel yedektir; işletim sisteminin otomatik yedek/aktarımından kişisel veri ve cihaz içi hak kayıtları dışlanır.
+
+Gelişmiş Pro istatistik/dashboard/kişiselleştirme başlıklarının ayrıntılı ürün kapsamı kendi feature specification'larında belirlenir; bu netleştirmeler Future Scope'u V1'e taşımaz.
 
 ---
 
