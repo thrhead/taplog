@@ -1,0 +1,145 @@
+[1mdiff --git a/.specify/memory/constitution.md b/.specify/memory/constitution.md[m
+[1mindex a4670ff..154c886 100644[m
+[1m--- a/.specify/memory/constitution.md[m
+[1m+++ b/.specify/memory/constitution.md[m
+[36m@@ -1,50 +1,105 @@[m
+[31m-# [PROJECT_NAME] Constitution[m
+[31m-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->[m
+[32m+[m[32m<!--[m
+[32m+[m[32mSync Impact Report[m
+[32m+[m[32m- Version change: unversioned template -> 1.0.0[m
+[32m+[m[32m- Modified principles: none; initial project constitution[m
+[32m+[m[32m- Added sections: Core Principles; Product and Platform Constraints; Development Workflow[m
+[32m+[m[32m- Removed sections: none[m
+[32m+[m[32m- Follow-up TODOs: none[m
+[32m+[m[32m-->[m
+[32m+[m[32m# TapLog Constitution[m
+ [m
+ ## Core Principles[m
+ [m
+[31m-### [PRINCIPLE_1_NAME][m
+[31m-<!-- Example: I. Library-First -->[m
+[31m-[PRINCIPLE_1_DESCRIPTION][m
+[31m-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->[m
+[32m+[m[32m### I. Event-First, Channel-Independent Core[m
+[32m+[m[32mTapLog's fundamental product primitive is **EVENT + TIMESTAMP**. App, Widget,[m
+[32m+[m[32mQuick Settings, NFC, and Natural Language are input channels to one Event system,[m
+[32m+[m[32mnot separate Event systems or products. The Event Engine MUST remain independent[m
+[32m+[m[32mof channel-specific UI, platform dispatch, and interaction behavior so that a valid[m
+[32m+[m[32mEvent request has the same domain meaning regardless of its origin.[m
+ [m
+[31m-### [PRINCIPLE_2_NAME][m
+[31m-<!-- Example: II. CLI Interface -->[m
+[31m-[PRINCIPLE_2_DESCRIPTION][m
+[31m-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->[m
+[32m+[m[32mRationale: a unified, channel-independent core preserves consistent history and[m
+[32m+[m[32mallows channels to evolve without redefining the product's data semantics.[m
+ [m
+[31m-### [PRINCIPLE_3_NAME][m
+[31m-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->[m
+[31m-[PRINCIPLE_3_DESCRIPTION][m
+[31m-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->[m
+[32m+[m[32m### II. Local-First Core and Optional Intelligence[m
+[32m+[m[32mV1 is Android-only and MUST provide core Event logging without an account or an[m
+[32m+[m[32minternet connection. Deterministic, local parsing MUST support the Natural Language[m
+[32m+[m[32minput path when AI is unavailable. AI MAY enhance supported devices, but MUST NOT be[m
+[32m+[m[32mrequired to create, interpret, or retain core Events.[m
+ [m
+[31m-### [PRINCIPLE_4_NAME][m
+[31m-<!-- Example: IV. Integration Testing -->[m
+[31m-[PRINCIPLE_4_DESCRIPTION][m
+[31m-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->[m
+[32m+[m[32mRationale: personal logging must remain available, private by default, and reliable[m
+[32m+[m[32munder ordinary offline conditions.[m
+ [m
+[31m-### [PRINCIPLE_5_NAME][m
+[31m-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->[m
+[31m-[PRINCIPLE_5_DESCRIPTION][m
+[31m-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->[m
+[32m+[m[32m### III. Preserve History and Confirm Ambiguity[m
+[32m+[m[32mHistory is sacred: Events and their historical meaning MUST be preserved through[m
+[32m+[m[32mordinary edits, corrections, archive operations, and lifecycle changes. Data may be[m
+[32m+[m[32mpermanently removed only after the user explicitly chooses a clearly communicated,[m
+[32m+[m[32mirreversible permanent-deletion action. When user intent, matching, or action is[m
+[32m+[m[32mambiguous, the system MUST obtain the minimum necessary confirmation rather than[m
+[32m+[m[32msilently mutating data or guessing incorrectly.[m
+ [m
+[31m-## [SECTION_2_NAME][m
+[31m-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->[m
+[32m+[m[32mRationale: TapLog is a record of real events; trust depends on accurate intent and[m
+[32m+[m[32mthe user's control over irreversible loss.[m
+ [m
+[31m-[SECTION_2_CONTENT][m
+[31m-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->[m
+[32m+[m[32m### IV. Channel-Owned Interaction Safety[m
+[32m+[m[32mDuplicate suppression and interaction handling MUST be implemented by the individual[m
+[32m+[m[32minput/channel layer. The Event Engine MUST NOT apply a global debounce that rejects[m
+[32m+[m[32ma valid Event request. Channel behavior MUST preserve intentional consecutive user[m
+[32m+[m[32mactions, including repeated Counter increments.[m
+ [m
+[31m-## [SECTION_3_NAME][m
+[31m-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->[m
+[32m+[m[32mRationale: physical NFC reads, widget interactions, tiles, and in-app actions have[m
+[32m+[m[32mdifferent failure and feedback characteristics; global suppression would corrupt[m
+[32m+[m[32mlegitimate event history.[m
+ [m
+[31m-[SECTION_3_CONTENT][m
+[31m-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->[m
+[32m+[m[32m### V. Testable Boundaries and Scope Discipline[m
+[32m+[m[32mDomain and application behavior MUST be independently testable from Android UI and[m
+[32m+[m[32mframework code. Changes to domain or application behavior MUST follow test-driven[m
+[32m+[m[32mdevelopment. Modules and interfaces MUST have clear responsibilities; channel and[m
+[32m+[m[32mAndroid integration code MUST not absorb Event Engine semantics. V1 MUST NOT include[m
+[32m+[m[32mFuture Scope items unless the PRD is explicitly amended to promote them.[m
+[32m+[m
+[32m+[m[32mRationale: explicit boundaries protect product semantics, enable reliable tests, and[m
+[32m+[m[32mkeep the first release focused.[m
+[32m+[m
+[32m+[m[32m## Product and Platform Constraints[m
+[32m+[m
+[32m+[m[32mAll implementation work MUST be traceable to the current[m
+[32m+[m[32m`docs/product/TapLog_V1_PRD.md`; the PRD is authoritative for product behavior.[m
+[32m+[m[32mTechnical TBDs in that PRD remain undecided and MUST NOT be converted into[m
+[32m+[m[32marchitecture, persistence, encryption, parser, lifecycle, or UI commitments without[m
+[32m+[m[32man approved feature design.[m
+[32m+[m
+[32m+[m[32mProduct and onboarding copy MUST make honest, platform-aware claims. In particular,[m
+[32m+[m[32mcopy MUST NOT promise unconditional NFC behavior across locked screens, Android[m
+[32m+[m[32mversions, devices, or OEM implementations. It may describe the intended interaction[m
+[32m+[m[32mwithout implying guarantees Android or OEM behavior cannot provide.[m
+[32m+[m
+[32m+[m[32m## Development Workflow[m
+[32m+[m
+[32m+[m[32mWork feature-by-feature and one independently verifiable implementation task at a[m
+[32m+[m[32mtime. Use Spec Kit artifacts as the canonical feature specification, plan, and task[m
+[32m+[m[32msources; do not create competing artifacts. Each implemented feature requires an[m
+[32m+[m[32mapproved specification traceable to the PRD; a product behavior change requires an[m
+[32m+[m[32mapproved PRD amendment before implementation.[m
+[32m+[m
+[32m+[m[32mBefore implementation, identify the applicable principle and PRD requirement. Tests[m
+[32m+[m[32mfor domain/application behavior are written first, observed to fail for the intended[m
+[32m+[m[32mreason, then implemented and refactored. Completion claims require proportionate,[m
+[32m+[m[32mexecuted verification and review of constitutional compliance, including local-first[m
+[32m+[m[32moperation, history preservation, ambiguity handling, and channel independence where[m
+[32m+[m[32mapplicable.[m
+ [m
+ ## Governance[m
+[31m-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->[m
+ [m
+[31m-[GOVERNANCE_RULES][m
+[31m-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->[m
+[32m+[m[32mThis constitution governs project-wide engineering and product constraints. It does[m
+[32m+[m[32mnot replace the PRD, which defines feature behavior, nor does it decide PRD Technical[m
+[32m+[m[32mTBDs. In a conflict, the PRD governs product behavior; this constitution governs how[m
+[32m+[m[32mthat behavior is designed and implemented without expanding V1 scope.[m
+[32m+[m
+[32m+[m[32mAmendments MUST document the reason, affected principles or sections, and any needed[m
+[32m+[m[32mupdates to dependent Spec Kit artifacts. Constitutional compliance MUST be reviewed[m
+[32m+[m[32mfor every feature specification, plan, task set, implementation review, and release[m
+[32m+[m[32mverification. A change that introduces a new principle or materially expands a rule[m
+[32m+[m[32mincrements the MINOR version; a backward-incompatible removal or redefinition[m
+[32m+[m[32mincrements MAJOR; clarifications and non-semantic wording changes increment PATCH.[m
+ [m
+[31m-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE][m
+[31m-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->[m
+[32m+[m[32m**Version**: 1.0.0 | **Ratified**: 2026-09-15 | **Last Amended**: 2026-09-15[m
