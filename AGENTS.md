@@ -100,3 +100,104 @@ If a task requires one of these changes, return it to Codex.
 - Prefer clarification over guessing product behavior.
 - Future Scope items are not part of V1 unless explicitly promoted.
 - Implementation decisions must remain traceable to the PRD and approved architecture.
+
+## Model Routing Policy
+
+Select the cheapest model that is appropriate for the task, but prioritize
+correctness over token cost.
+
+### GPT-6 Astra
+
+Use Astra for tasks with high architectural or systemic impact, including:
+
+- greenfield system architecture
+- major architecture changes
+- cross-module design decisions
+- difficult domain modeling
+- specification conflicts with system-wide consequences
+- concurrency architecture
+- security/cryptography architecture
+- persistence architecture with migration implications
+- complex NFC/Android lifecycle architecture
+- difficult root-cause analysis where multiple subsystems interact
+- final architectural review before major implementation phases
+
+Do not use Astra for routine implementation, boilerplate, formatting,
+straightforward tests, or documentation cleanup.
+
+### GPT-5.6 Sol
+
+Use Sol for difficult engineering work that needs strong reasoning but does
+not require project-wide architectural re-evaluation, including:
+
+- complex implementation
+- difficult debugging
+- complex refactoring
+- code review of high-risk changes
+- database implementation
+- NFC implementation
+- parser/fuzzy-matching implementation
+- lifecycle/background execution issues
+- security-sensitive implementation
+- difficult test failures
+- verification of high-risk features
+
+### GPT-5.6 Terra
+
+Use Terra as the default model for normal engineering work, including:
+
+- project constitution
+- feature specifications
+- implementation roadmaps
+- normal feature implementation
+- straightforward refactors
+- Spec Kit task decomposition
+- documentation
+- normal tests
+- ordinary reviews
+- routine planning
+
+### GPT-5.6 Luna
+
+Use Luna only for low-risk, mechanical, or high-volume work, including:
+
+- formatting
+- boilerplate
+- repetitive resource changes
+- simple mappings
+- repetitive test-case expansion
+- fixtures/sample data
+- documentation cleanup
+- mechanical renames
+- simple file transformations
+
+Do not use Luna to make architecture, domain, persistence, API, security,
+or product-behavior decisions.
+
+### Antigravity
+
+Prefer Antigravity instead of Codex/Luna for bounded, mechanical tasks when
+the task is already precisely defined by an approved Spec Kit task.
+
+Antigravity must follow the restrictions defined in the Antigravity section
+of this file.
+
+## Model Escalation Rules
+
+If the currently active model is weaker than the recommended model for the
+task:
+
+1. Do not silently proceed with a high-impact decision.
+2. State the recommended model before substantive work begins.
+3. Explain in one short sentence why escalation is warranted.
+4. Wait for the user to switch models if the task requires Astra or Sol.
+
+If the currently active model is stronger than necessary, continuing is
+allowed, but mention that a cheaper model would normally be sufficient when
+starting a new independent task.
+
+Never downgrade models in the middle of an unfinished reasoning chain solely
+to save tokens.
+
+When uncertain between two model tiers, use the stronger tier if an incorrect
+decision would have high blast radius or be expensive to reverse.
