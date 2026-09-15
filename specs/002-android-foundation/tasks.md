@@ -8,7 +8,7 @@
 
 **Purpose**: Project initialization, build wrapper, dependency catalog, and repository settings
 
-- [ ] T001 Create Gradle Wrapper files in `gradle/wrapper/gradle-wrapper.properties` pinning Gradle distribution 9.6.0 with SHA-256 checksum, and `gradle/wrapper/gradle-wrapper.jar`, `gradlew`, `gradlew.bat`
+- [X] T001 Create Gradle Wrapper files in `gradle/wrapper/gradle-wrapper.properties` pinning Gradle distribution 9.6.0 with SHA-256 checksum, and `gradle/wrapper/gradle-wrapper.jar`, `gradlew`, `gradlew.bat`
 - [ ] T002 [P] Create central version catalog in `gradle/libs.versions.toml` pinning exact versions: AGP 9.4.0, Gradle 9.6.0, KGP 2.3.21, KSP 2.3.6 (catalogued only), JDK 17, Compose BOM 2026.03.00, Activity Compose 1.13.0, JUnit 4.13.2, AndroidX Test Runner 1.7.0, AndroidX JUnit extension 1.3.0, Detekt 1.23.8, detekt-formatting 1.23.8
 - [ ] T003 [P] Configure central repositories (Google, MavenCentral, Gradle Plugin Portal) and module inclusions (`:core`, `:data`, `:app`) in `settings.gradle.kts`
 - [ ] T004 [P] Create shared build options and encoding properties in `gradle.properties`
