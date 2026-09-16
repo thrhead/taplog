@@ -24,7 +24,7 @@
 
 - [X] T006 Configure root plugins and common build setup in `build.gradle.kts`
 - [X] T007 [P] Create `:core` Kotlin/JVM module build definition in `core/build.gradle.kts` with JDK 17 toolchain, JUnit 4.13.2 test dependency, and zero Android dependencies
-- [ ] T008 [P] Create `:data` Android library module build definition in `data/build.gradle.kts` with `compileSdk` 36, `minSdk` 26, dependency `implementation(project(":core"))`, and zero Room/KSP/schema code
+- [X] T008 [P] Create `:data` Android library module build definition in `data/build.gradle.kts` with `compileSdk` 36, `minSdk` 26, dependency `implementation(project(":core"))`, and zero Room/KSP/schema code
 - [ ] T009 [P] Create JVM test scaffolds in `core/src/test/kotlin/io/github/thrhead/taplog/core/CoreTestScaffoldTest.kt` and `data/src/test/kotlin/io/github/thrhead/taplog/data/DataTestScaffoldTest.kt`
 - [ ] T010 Create Detekt static analysis and formatting configuration in `config/detekt/detekt.yml` and wire `foundationCheck` aggregate task in `build.gradle.kts`
 
