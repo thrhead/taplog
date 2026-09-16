@@ -62,7 +62,7 @@
 - [X] T017 [P] [US2] Create application strings and theme resources in `app/src/main/res/values/strings.xml` and `app/src/main/res/values/themes.xml` for display name `TapLog` and non-product theme
 - [X] T018 [US2] Implement static neutral shell activity in `app/src/main/java/io/github/thrhead/taplog/MainActivity.kt` presenting a neutral Compose screen identifying `TapLog` with no product workflow or data
 - [X] T019 [P] [US2] Create local unit test scaffold in `app/src/test/kotlin/io/github/thrhead/taplog/AppTestScaffoldTest.kt` verifying `:app` JVM test lane
-- [ ] T020 [US2] Create connected launch test in `app/src/androidTest/kotlin/io/github/thrhead/taplog/MainActivityLaunchTest.kt` verifying `MainActivity` launches on an API 26+ device/emulator without crashing
+- [X] T020 [US2] Create connected launch test in `app/src/androidTest/kotlin/io/github/thrhead/taplog/MainActivityLaunchTest.kt` verifying `MainActivity` launches on an API 26+ device/emulator without crashing
 
 **Checkpoint**: Foundation shell app builds, installs, launches on API 26+, and passes connected launch test
 
