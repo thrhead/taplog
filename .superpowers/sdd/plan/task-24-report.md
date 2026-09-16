@@ -97,4 +97,5 @@ This is an environment limitation, not a quickstart consistency defect. T025 rem
 
 ## Commits
 
-- Pending commit creation at report authoring time.
+- `682bc44` — initial Task 24 bookkeeping and report commit.
+- Final report metadata update is committed separately after this report was written.
