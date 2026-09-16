@@ -41,7 +41,7 @@
 ### Implementation for User Story 1
 
 - [X] T011 [P] [US1] Create dev container Dockerfile in `.devcontainer/Dockerfile` provisioning JDK 17, Android SDK platform 36 (`platforms;android-36`), and Build Tools 36.0.0 (`build-tools;36.0.0`) without emulator or KVM requirements
-- [ ] T012 [P] [US1] Create dev container configuration in `.devcontainer/devcontainer.json` referencing `.devcontainer/Dockerfile` and configuring workspace environment settings
+- [X] T012 [P] [US1] Create dev container configuration in `.devcontainer/devcontainer.json` referencing `.devcontainer/Dockerfile` and configuring workspace environment settings
 - [ ] T013 [US1] Create push/PR CI workflow in `.github/workflows/android-foundation.yml` running `./gradlew --no-daemon clean foundationCheck` with read-only permissions and artifact reporting on failure
 - [ ] T014 [US1] Add Codespaces setup and non-device verification instructions in `README.md`
 
