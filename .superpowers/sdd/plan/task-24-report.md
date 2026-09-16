@@ -99,3 +99,76 @@ This is an environment limitation, not a quickstart consistency defect. T025 rem
 
 - `682bc44` — initial Task 24 bookkeeping and report commit.
 - Final report metadata update is committed separately after this report was written.
+
+## Round 1 Fix Report
+
+### Reviewer finding addressed
+
+The prior device section repeated only `./gradlew --no-daemon :app:installDebug` and left launch as prose. It did not provide an executable sequence for five complete clean build-install-launch attempts required by SC-002 and plan.md.
+
+### Files changed in this fix
+
+- `specs/002-android-foundation/quickstart.md`: replaced the incomplete repetition step with a five-iteration device-only shell loop. Each iteration runs `./gradlew --no-daemon clean :app:assembleDebug`, `./gradlew --no-daemon :app:installDebug`, force-stops the package, launches `io.github.thrhead.taplog/.MainActivity` with `adb`, and requires a manual visible-shell/no-crash check.
+- `.superpowers/sdd/plan/task-24-report.md`: appended this fix report.
+- PRD, `specs/002-android-foundation/spec.md`, and `specs/002-android-foundation/plan.md`: unchanged.
+
+### Semantic verification evidence
+
+Command:
+
+```sh
+set -e
+quickstart=specs/002-android-foundation/quickstart.md
+spec=specs/002-android-foundation/spec.md
+plan=specs/002-android-foundation/plan.md
+printf '%s\n' 'Five-cycle semantic checks:'
+test "$(rg -c 'for attempt in 1 2 3 4 5' "$quickstart")" = 1
+rg -F -q './gradlew --no-daemon clean :app:assembleDebug' "$quickstart"
+rg -F -q './gradlew --no-daemon :app:installDebug' "$quickstart"
+rg -F -q 'adb shell am start -n io.github.thrhead.taplog/.MainActivity' "$quickstart"
+rg -F -q 'Expected on each attempt' "$quickstart"
+printf '%s\n' 'Quickstart cycle:'
+sed -n '36,65p' "$quickstart"
+printf '%s\n' 'Approved references:'
+rg -n 'SC-002|five clean build-install-launch attempts|Manual launch|connected tests and manual launch require' "$spec" "$plan"
+printf '%s\n' 'Spec/plan unchanged:'
+git diff --quiet -- "$spec" "$plan"
+echo 'PASS: five-cycle sequence matches the approved five-attempt device acceptance scope.'
+```
+
+Output:
+
+```text
+Five-cycle semantic checks:
+Quickstart cycle:
+## API-26-or-newer device or emulator
+3. Run five complete clean build-install-launch attempts. Each loop iteration cleans and builds the debug app, installs it on the connected API-26-or-newer target, launches the declared launcher activity, and then requires a manual check that the static shell appears without crashing:
+for attempt in 1 2 3 4 5; do
+  ./gradlew --no-daemon clean :app:assembleDebug
+  ./gradlew --no-daemon :app:installDebug
+  adb shell am force-stop io.github.thrhead.taplog
+  adb shell am start -n io.github.thrhead.taplog/.MainActivity
+done
+Approved references:
+specs/002-android-foundation/spec.md:145:- **SC-002**: On an API 26-compatible device or emulator, 100% of five consecutive clean build-install-launch attempts show the minimal TapLog shell without a crash.
+specs/002-android-foundation/plan.md:133:| Manual launch | `./gradlew --no-daemon :app:installDebug` | API-26+ emulator/device only | `io.github.thrhead.taplog` installs and its neutral shell launches. |
+specs/002-android-foundation/plan.md:135:The Android/device acceptance run consists of five clean build-install-launch attempts. A missing device or `adb` is a documented prerequisite failure, not a failed Codespaces/CI build.
+Spec/plan unchanged:
+PASS: five-cycle sequence matches the approved five-attempt device acceptance scope.
+```
+
+### Focused documentation checks
+
+Command:
+
+```sh
+git diff --check
+```
+
+Output:
+
+```text
+PASS: git diff --check
+```
+
+The Gradle/device loop itself was not executed because this workspace has no connected-device authorization/environment; the checks verify the executable documentation semantics and preserve the device-only boundary.
