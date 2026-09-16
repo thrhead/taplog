@@ -12,7 +12,6 @@ import io.github.thrhead.taplog.core.domain.Source
 import io.github.thrhead.taplog.core.domain.Target
 import io.github.thrhead.taplog.core.domain.TargetId
 import io.github.thrhead.taplog.core.domain.UnitName
-import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -62,7 +61,7 @@ class EventEngineLoggingInvalidTest {
         val boundary = InMemoryBoundary(DomainState(records = mapOf(moment.id to moment, counter.id to counter)))
 
         assertEquals(EngineResult.Invalid(ResultReason.BEHAVIOR_MISMATCH), engine(boundary).apply(AddCounter(moment.id, source = Source.APP)))
-        assertEquals(EngineResult.Invalid(ResultReason.INVALID_QUANTITY), engine(boundary).apply(AddCounter(counter.id, quantity = Quantity(BigDecimal.ZERO), source = Source.APP)))
+        assertEquals(EngineResult.Invalid(ResultReason.INVALID_QUANTITY), engine(boundary).apply(AddCounter(counter.id, quantity = Quantity.parse("0"), source = Source.APP)))
         assertTrue(!boundary.committed)
     }
 
@@ -84,9 +83,23 @@ class EventEngineLoggingInvalidTest {
         assertTrue(boundary.state.events.isEmpty())
     }
 
+    @Test
+    fun staleReadCannotCommitAReplacementStateOverAConcurrentEvent() {
+        val record = Record(RecordId("moment"), "Moment", null, Behavior.MOMENT)
+        val boundary = CompareAndCommitBoundary(DomainState(records = mapOf(record.id to record)))
+        val engine = EventEngine(boundary, FixedClock) { io.github.thrhead.taplog.core.domain.EventId("first") }
+
+        assertEquals(EngineResult.StorageFailure, engine.apply(LogMoment(record.id, source = Source.APP)))
+        assertEquals(listOf(io.github.thrhead.taplog.core.domain.EventId("concurrent")), boundary.state.events.map { it.id })
+    }
+
     private fun engine(boundary: InMemoryBoundary) = EventEngine(boundary, object : AcceptanceClock {
         override fun now() = EpochMillis(1_000)
     }) { io.github.thrhead.taplog.core.domain.EventId("event") }
+
+    private object FixedClock : AcceptanceClock {
+        override fun now() = EpochMillis(1_000)
+    }
 
     private class InMemoryBoundary(initial: DomainState, private val acceptCommits: Boolean = true) : AtomicCommitBoundary {
         var state = initial
@@ -96,6 +109,27 @@ class EventEngineLoggingInvalidTest {
             if (!acceptCommits) return false
             state = operation.state
             committed = true
+            return true
+        }
+    }
+
+    private class CompareAndCommitBoundary(initial: DomainState) : AtomicCommitBoundary {
+        var state = initial
+        private var raced = false
+
+        override fun read() = state
+
+        override fun commit(operation: CommitOperation): Boolean {
+            if (!raced) {
+                raced = true
+                val concurrentEvent = operation.state.events.single().copy(id = io.github.thrhead.taplog.core.domain.EventId("concurrent"))
+                state = operation.state.copy(
+                    events = listOf(concurrentEvent),
+                    nextSequence = io.github.thrhead.taplog.core.domain.Sequence(2),
+                )
+            }
+            if (operation.expected != state) return false
+            state = operation.state
             return true
         }
     }

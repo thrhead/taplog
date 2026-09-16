@@ -64,11 +64,12 @@ class EventEngineLoggingTest {
     fun omittedOccurrenceTimeUsesAcceptanceTime() {
         val boundary = boundaryWith(momentRecord())
 
-        EventEngine(boundary, FixedClock).apply(LogMoment(RecordId("moment"), source = Source.APP))
+        EventEngine(boundary, AdvancingClock).apply(LogMoment(RecordId("moment"), source = Source.APP))
 
         val event = boundary.state.events.single()
         assertEquals(EpochMillis(1_000), event.occurredAt)
         assertEquals(event.occurredAt, event.createdAt)
+        assertEquals(event.createdAt, event.updatedAt)
     }
 
     @Test
@@ -120,6 +121,15 @@ class EventEngineLoggingTest {
 
     private object FixedClock : AcceptanceClock {
         override fun now() = EpochMillis(1_000)
+    }
+
+    private object AdvancingClock : AcceptanceClock {
+        private var calls = 0
+
+        override fun now(): EpochMillis {
+            calls += 1
+            return EpochMillis(calls * 1_000L)
+        }
     }
 
     private class InMemoryBoundary(initial: DomainState) : AtomicCommitBoundary {
