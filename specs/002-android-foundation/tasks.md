@@ -9,10 +9,10 @@
 **Purpose**: Project initialization, build wrapper, dependency catalog, and repository settings
 
 - [X] T001 Create Gradle Wrapper files in `gradle/wrapper/gradle-wrapper.properties` pinning Gradle distribution 9.6.0 with SHA-256 checksum, and `gradle/wrapper/gradle-wrapper.jar`, `gradlew`, `gradlew.bat`
-- [ ] T002 [P] Create central version catalog in `gradle/libs.versions.toml` pinning exact versions: AGP 9.4.0, Gradle 9.6.0, KGP 2.3.21, KSP 2.3.6 (catalogued only), JDK 17, Compose BOM 2026.03.00, Activity Compose 1.13.0, JUnit 4.13.2, AndroidX Test Runner 1.7.0, AndroidX JUnit extension 1.3.0, Detekt 1.23.8, detekt-formatting 1.23.8
-- [ ] T003 [P] Configure central repositories (Google, MavenCentral, Gradle Plugin Portal) and module inclusions (`:core`, `:data`, `:app`) in `settings.gradle.kts`
-- [ ] T004 [P] Create shared build options and encoding properties in `gradle.properties`
-- [ ] T005 [P] Create repository ignore rules in `.gitignore` to exclude machine-specific paths and local build artifacts
+- [X] T002 [P] Create central version catalog in `gradle/libs.versions.toml` pinning exact versions: AGP 9.4.0, Gradle 9.6.0, KGP 2.3.21, KSP 2.3.6 (catalogued only), JDK 17, Compose BOM 2026.03.00, Activity Compose 1.13.0, JUnit 4.13.2, AndroidX Test Runner 1.7.0, AndroidX JUnit extension 1.3.0, Detekt 1.23.8, detekt-formatting 1.23.8
+- [X] T003 [P] Configure central repositories (Google, MavenCentral, Gradle Plugin Portal) and module inclusions (`:core`, `:data`, `:app`) in `settings.gradle.kts`
+- [X] T004 [P] Create shared build options and encoding properties in `gradle.properties`
+- [X] T005 [P] Create repository ignore rules in `.gitignore` to exclude machine-specific paths and local build artifacts
 
 ---
 
@@ -22,11 +22,11 @@
 
 **⚠️ CRITICAL**: No user story implementation can begin until this phase is complete
 
-- [ ] T006 Configure root plugins and common build setup in `build.gradle.kts`
-- [ ] T007 [P] Create `:core` Kotlin/JVM module build definition in `core/build.gradle.kts` with JDK 17 toolchain, JUnit 4.13.2 test dependency, and zero Android dependencies
-- [ ] T008 [P] Create `:data` Android library module build definition in `data/build.gradle.kts` with `compileSdk` 36, `minSdk` 26, dependency `implementation(project(":core"))`, and zero Room/KSP/schema code
-- [ ] T009 [P] Create JVM test scaffolds in `core/src/test/kotlin/io/github/thrhead/taplog/core/CoreTestScaffoldTest.kt` and `data/src/test/kotlin/io/github/thrhead/taplog/data/DataTestScaffoldTest.kt`
-- [ ] T010 Create Detekt static analysis and formatting configuration in `config/detekt/detekt.yml` and wire `foundationCheck` aggregate task in `build.gradle.kts`
+- [X] T006 Configure root plugins and common build setup in `build.gradle.kts`
+- [X] T007 [P] Create `:core` Kotlin/JVM module build definition in `core/build.gradle.kts` with JDK 17 toolchain, JUnit 4.13.2 test dependency, and zero Android dependencies
+- [X] T008 [P] Create `:data` Android library module build definition in `data/build.gradle.kts` with `compileSdk` 36, `minSdk` 26, dependency `implementation(project(":core"))`, and zero Room/KSP/schema code
+- [X] T009 [P] Create JVM test scaffolds in `core/src/test/kotlin/io/github/thrhead/taplog/core/CoreTestScaffoldTest.kt` and `data/src/test/kotlin/io/github/thrhead/taplog/data/DataTestScaffoldTest.kt`
+- [X] T010 Create Detekt static analysis and formatting configuration in `config/detekt/detekt.yml` and wire `foundationCheck` aggregate task in `build.gradle.kts`
 
 **Checkpoint**: Base build system and module graph created — user story implementation can now begin
 
@@ -40,10 +40,10 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [P] [US1] Create dev container Dockerfile in `.devcontainer/Dockerfile` provisioning JDK 17, Android SDK platform 36 (`platforms;android-36`), and Build Tools 36.0.0 (`build-tools;36.0.0`) without emulator or KVM requirements
-- [ ] T012 [P] [US1] Create dev container configuration in `.devcontainer/devcontainer.json` referencing `.devcontainer/Dockerfile` and configuring workspace environment settings
-- [ ] T013 [US1] Create push/PR CI workflow in `.github/workflows/android-foundation.yml` running `./gradlew --no-daemon clean foundationCheck` with read-only permissions and artifact reporting on failure
-- [ ] T014 [US1] Add Codespaces setup and non-device verification instructions in `README.md`
+- [X] T011 [P] [US1] Create dev container Dockerfile in `.devcontainer/Dockerfile` provisioning JDK 17, Android SDK platform 36 (`platforms;android-36`), and Build Tools 36.0.0 (`build-tools;36.0.0`) without emulator or KVM requirements
+- [X] T012 [P] [US1] Create dev container configuration in `.devcontainer/devcontainer.json` referencing `.devcontainer/Dockerfile` and configuring workspace environment settings
+- [X] T013 [US1] Create push/PR CI workflow in `.github/workflows/android-foundation.yml` running `./gradlew --no-daemon clean foundationCheck` with read-only permissions and artifact reporting on failure
+- [X] T014 [US1] Add Codespaces setup and non-device verification instructions in `README.md`
 
 **Checkpoint**: User Story 1 environment is reproducible and verifiable via Codespaces and CI
 
@@ -57,12 +57,12 @@
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Create `:app` module build definition in `app/build.gradle.kts` declaring `applicationId = "io.github.thrhead.taplog"`, `minSdk = 26`, `compileSdk = 36`, `targetSdk = 36`, Compose BOM 2026.03.00, Activity Compose 1.13.0, Material 3, and module dependencies `:core` and `:data`
-- [ ] T016 [P] [US2] Create application manifest in `app/src/main/AndroidManifest.xml` declaring package `io.github.thrhead.taplog`, display name `TapLog`, and single launcher activity
-- [ ] T017 [P] [US2] Create application strings and theme resources in `app/src/main/res/values/strings.xml` and `app/src/main/res/values/themes.xml` for display name `TapLog` and non-product theme
-- [ ] T018 [US2] Implement static neutral shell activity in `app/src/main/java/io/github/thrhead/taplog/MainActivity.kt` presenting a neutral Compose screen identifying `TapLog` with no product workflow or data
-- [ ] T019 [P] [US2] Create local unit test scaffold in `app/src/test/kotlin/io/github/thrhead/taplog/AppTestScaffoldTest.kt` verifying `:app` JVM test lane
-- [ ] T020 [US2] Create connected launch test in `app/src/androidTest/kotlin/io/github/thrhead/taplog/MainActivityLaunchTest.kt` verifying `MainActivity` launches on an API 26+ device/emulator without crashing
+- [X] T015 [US2] Create `:app` module build definition in `app/build.gradle.kts` declaring `applicationId = "io.github.thrhead.taplog"`, `minSdk = 26`, `compileSdk = 36`, `targetSdk = 36`, Compose BOM 2026.03.00, Activity Compose 1.13.0, Material 3, and module dependencies `:core` and `:data`
+- [X] T016 [P] [US2] Create application manifest in `app/src/main/AndroidManifest.xml` declaring package `io.github.thrhead.taplog`, display name `TapLog`, and single launcher activity
+- [X] T017 [P] [US2] Create application strings and theme resources in `app/src/main/res/values/strings.xml` and `app/src/main/res/values/themes.xml` for display name `TapLog` and non-product theme
+- [X] T018 [US2] Implement static neutral shell activity in `app/src/main/java/io/github/thrhead/taplog/MainActivity.kt` presenting a neutral Compose screen identifying `TapLog` with no product workflow or data
+- [X] T019 [P] [US2] Create local unit test scaffold in `app/src/test/kotlin/io/github/thrhead/taplog/AppTestScaffoldTest.kt` verifying `:app` JVM test lane
+- [X] T020 [US2] Create connected launch test in `app/src/androidTest/kotlin/io/github/thrhead/taplog/MainActivityLaunchTest.kt` verifying `MainActivity` launches on an API 26+ device/emulator without crashing
 
 **Checkpoint**: Foundation shell app builds, installs, launches on API 26+, and passes connected launch test
 
@@ -76,8 +76,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Verify module dependency isolation in `core/build.gradle.kts`, `data/build.gradle.kts`, and `app/build.gradle.kts` enforcing `:core` platform independence and directed graph `:data` → `:core`, `:app` → `:core`,`:data`
-- [ ] T022 [US3] Audit version declarations in `gradle/libs.versions.toml` to ensure zero dynamic or version range declarations exist
+- [X] T021 [US3] Verify module dependency isolation in `core/build.gradle.kts`, `data/build.gradle.kts`, and `app/build.gradle.kts` enforcing `:core` platform independence and directed graph `:data` → `:core`, `:app` → `:core`,`:data`
+- [X] T022 [US3] Audit version declarations in `gradle/libs.versions.toml` to ensure zero dynamic or version range declarations exist
 
 **Checkpoint**: Architectural boundaries are enforced and reviewable via Gradle dependency reports
 
@@ -87,9 +87,21 @@
 
 **Purpose**: Verification and documentation alignment across the foundation slice
 
-- [ ] T023 [P] Verify build and verification contract in `specs/002-android-foundation/contracts/verification-contract.md`
-- [ ] T024 [P] Verify foundation validation quickstart guide in `specs/002-android-foundation/quickstart.md`
-- [ ] T025 Execute foundation verification suite via `./gradlew --version`, `./gradlew --no-daemon clean foundationCheck`, and `./gradlew :core:dependencies :data:dependencies :app:dependencies` per `quickstart.md`
+- [X] T023 [P] Verify build and verification contract in `specs/002-android-foundation/contracts/verification-contract.md`
+- [X] T024 [P] Verify foundation validation quickstart guide in `specs/002-android-foundation/quickstart.md`
+- [X] T025 Execute foundation verification suite via `./gradlew --version`, `./gradlew --no-daemon clean foundationCheck`, and `./gradlew :core:dependencies :data:dependencies :app:dependencies` per `quickstart.md`
+
+**T025 verification exception (2026-09-16)**: The completion mark records the
+reviewer-approved JDK 17 environment-prerequisite exception, not a passing
+`foundationCheck`. The original run used a writable Gradle cache and host
+networking: `./gradlew --version` exited 0 with Gradle 9.6.0 on JDK 25.0.4.1,
+and the dependency-report retry exited 0 (`BUILD SUCCESSFUL in 5s`).
+`./gradlew --no-daemon clean foundationCheck` exited 1 when the daemon
+disappeared during Android compilation/dexing; a one-worker retry with increased
+heap also exited 1 during `:app:mergeExtDexDebug`. JDK 17 was unavailable in that
+execution environment. Verification under the approved JDK 17 remains necessary;
+this exception changes neither the required toolchain nor product/spec/plan scope
+and does not establish that the foundation or device acceptance passed.
 
 ---
 

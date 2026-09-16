@@ -1,0 +1,227 @@
+# Task 24 Report: Verify Foundation Validation Quickstart
+
+## Status
+
+PASS for the requested documentation-consistency verification. The quickstart is consistent with the approved foundation spec, plan, and verification contract. T024 is marked complete in `specs/002-android-foundation/tasks.md`.
+
+No product requirements, approved spec, plan, verification contract, or quickstart content was changed.
+
+## Files changed
+
+- `specs/002-android-foundation/tasks.md`: marked only T024 `[X]`.
+- `.superpowers/sdd/plan/task-24-report.md`: this report.
+
+## Verification commands and output
+
+### Quickstart/contract consistency scan
+
+Command:
+
+```sh
+set -u
+printf '%s\\n' 'Quickstart contract consistency checks:'
+rg -n '^## (Codespaces|GitHub Actions|API-26-or-newer device or emulator)|./gradlew --version|./gradlew --no-daemon clean foundationCheck|./gradlew :core:dependencies :data:dependencies :app:dependencies|./gradlew --no-daemon :app:connectedDebugAndroidTest|./gradlew --no-daemon :app:installDebug|JDK 17|Build Tools 36\\.0\\.0|Gradle 9\\.6\\.0|API 26|io\\.github\\.thrhead\\.taplog' specs/002-android-foundation/quickstart.md
+printf '%s\\n' 'Approved contract command comparison:'
+rg -n '^\\| `\\./gradlew|Codespaces|CI|Local device lane|API-26-or-newer|platform 36|Build Tools 36\\.0\\.0' specs/002-android-foundation/contracts/verification-contract.md
+printf '%s\\n' 'Diff whitespace check:'
+git diff --check
+printf '%s\\n' 'Task bookkeeping:'
+rg -n '^[-] \\[[ X]\\] T02[345]' specs/002-android-foundation/tasks.md
+```
+
+Output:
+
+```text
+Quickstart contract consistency checks:
+5:## Codespaces
+7:1. Open a clean checkout in GitHub Codespaces and wait for the dev container to finish provisioning JDK 17, Android platform 36, and Build Tools 36.0.0.
+11:   ./gradlew --version
+14:   Expected: Gradle 9.6.0 running on JDK 17.
+19:   ./gradlew --no-daemon clean foundationCheck
+27:   ./gradlew :core:dependencies :data:dependencies :app:dependencies
+32:## GitHub Actions
+36:## API-26-or-newer device or emulator
+42:   ./gradlew --no-daemon :app:connectedDebugAndroidTest
+48:   ./gradlew --no-daemon :app:installDebug
+51:   Launch `io.github.thrhead.taplog`. Expected: a static, accessible TapLog shell appears without crashing. It offers no Record, Event, Target, NFC, widget, Quick Settings, parser, backup, statistics, or purchase interaction.
+Approved contract command comparison:
+3:This contract is the shared interface for contributors, Codespaces, and GitHub Actions. It deliberately exposes only foundation checks and no product command.
+9:| Codespaces | Checked-out repository, JDK 17, Android SDK platform 36 and Build Tools 36.0.0 | `adb`, emulator, AVD, `/dev/kvm`, NFC device |
+10:| GitHub Actions | Ubuntu runner, JDK 17, Android SDK platform 36 and Build Tools 36.0.0 | Secrets, emulator, signing/publishing credentials |
+11:| Local device lane | API-26-or-newer device/emulator with `adb` available | Network product service, NFC, widget, or product data |
+17:| `./gradlew --version` | All | Uses checked-in Gradle 9.6.0 and JDK 17. |
+18:| `./gradlew --no-daemon clean foundationCheck` | Codespaces, CI, local | Builds app debug artifact, runs `:core:test`, `:data:test`, `:app:testDebugUnitTest`, Android lint, Detekt, and formatting rules without a device. |
+19:| `./gradlew :core:dependencies :data:dependencies :app:dependencies` | Codespaces, local | Makes module dependency direction reviewable; `:core` must have no Android artifact. |
+20:| `./gradlew --no-daemon :app:connectedDebugAndroidTest` | Local device/emulator only | The neutral launcher shell starts and its test passes. |
+21:| `./gradlew --no-daemon :app:installDebug` | Local device/emulator only | The package installs for manual launch validation. |
+25:- A missing local device/`adb` makes only connected/manual commands unavailable; it must not fail `foundationCheck` or the CI job.
+27:- CI runs no connected/device test, no release build, no publishing step, and no product action. It uploads lint/Detekt reports only when its verification fails.
+Diff whitespace check:
+Task bookkeeping:
+90:- [X] T023 [P] Verify build and verification contract in `specs/002-android-foundation/contracts/verification-contract.md`
+91:- [X] T024 [P] Verify foundation validation quickstart guide in `specs/002-android-foundation/quickstart.md`
+92:- [ ] T025 Execute foundation verification suite via `./gradlew --version`, `./gradlew --no-daemon clean foundationCheck`, and `./gradlew :core:dependencies :data:dependencies :app:dependencies` per `quickstart.md`
+```
+
+Result: passed with no whitespace errors. The quickstart has distinct Codespaces, GitHub Actions, and API-26-or-newer device/emulator sections; uses the contract commands and exact approved values; and leaves T025 untouched.
+
+### Wrapper/toolchain check
+
+Command:
+
+```sh
+./gradlew --version
+```
+
+Output:
+
+```text
+Exception in thread "main" java.io.FileNotFoundException: /home/codespace/.gradle/wrapper/dists/gradle-9.6.0-bin/42k10rwplmzkhuboz9kdazi7s/gradle-9.6.0-bin.zip.lck (Read-only file system)
+```
+
+The command could not run because the environment exposes `/home/codespace/.gradle` as read-only. A retry with a writable task-local `GRADLE_USER_HOME` reached distribution download but was blocked by the sandbox network policy:
+
+```text
+Fetching distribution.
+Downloading https://services.gradle.org/distributions/gradle-9.6.0-bin.zip
+Attempt 1/1 failed. Reason: Operation not permitted
+java.net.SocketException: Operation not permitted
+```
+
+This is an environment limitation, not a quickstart consistency defect. T025 remains incomplete as specified.
+
+## Concerns
+
+- The Gradle wrapper execution could not be completed in this restricted environment because its default cache is read-only and network access is unavailable for a fresh task-local distribution download.
+- No connected-device or manual-launch verification was attempted; those are explicitly T025/device-lane work and require an API-26-or-newer device or emulator.
+
+## Commits
+
+- `682bc44` — initial Task 24 bookkeeping and report commit.
+- Final report metadata update is committed separately after this report was written.
+
+## Round 1 Fix Report
+
+### Reviewer finding addressed
+
+The prior device section repeated only `./gradlew --no-daemon :app:installDebug` and left launch as prose. It did not provide an executable sequence for five complete clean build-install-launch attempts required by SC-002 and plan.md.
+
+### Files changed in this fix
+
+- `specs/002-android-foundation/quickstart.md`: replaced the incomplete repetition step with a five-iteration device-only shell loop. Each iteration runs `./gradlew --no-daemon clean :app:assembleDebug`, `./gradlew --no-daemon :app:installDebug`, force-stops the package, launches `io.github.thrhead.taplog/.MainActivity` with `adb`, and requires a manual visible-shell/no-crash check.
+- `.superpowers/sdd/plan/task-24-report.md`: appended this fix report.
+- PRD, `specs/002-android-foundation/spec.md`, and `specs/002-android-foundation/plan.md`: unchanged.
+
+### Semantic verification evidence
+
+Command:
+
+```sh
+set -e
+quickstart=specs/002-android-foundation/quickstart.md
+spec=specs/002-android-foundation/spec.md
+plan=specs/002-android-foundation/plan.md
+printf '%s\n' 'Five-cycle semantic checks:'
+test "$(rg -c 'for attempt in 1 2 3 4 5' "$quickstart")" = 1
+rg -F -q './gradlew --no-daemon clean :app:assembleDebug' "$quickstart"
+rg -F -q './gradlew --no-daemon :app:installDebug' "$quickstart"
+rg -F -q 'adb shell am start -n io.github.thrhead.taplog/.MainActivity' "$quickstart"
+rg -F -q 'Expected on each attempt' "$quickstart"
+printf '%s\n' 'Quickstart cycle:'
+sed -n '36,65p' "$quickstart"
+printf '%s\n' 'Approved references:'
+rg -n 'SC-002|five clean build-install-launch attempts|Manual launch|connected tests and manual launch require' "$spec" "$plan"
+printf '%s\n' 'Spec/plan unchanged:'
+git diff --quiet -- "$spec" "$plan"
+echo 'PASS: five-cycle sequence matches the approved five-attempt device acceptance scope.'
+```
+
+Output:
+
+```text
+Five-cycle semantic checks:
+Quickstart cycle:
+## API-26-or-newer device or emulator
+3. Run five complete clean build-install-launch attempts. Each loop iteration cleans and builds the debug app, installs it on the connected API-26-or-newer target, launches the declared launcher activity, and then requires a manual check that the static shell appears without crashing:
+for attempt in 1 2 3 4 5; do
+  ./gradlew --no-daemon clean :app:assembleDebug
+  ./gradlew --no-daemon :app:installDebug
+  adb shell am force-stop io.github.thrhead.taplog
+  adb shell am start -n io.github.thrhead.taplog/.MainActivity
+done
+Approved references:
+specs/002-android-foundation/spec.md:145:- **SC-002**: On an API 26-compatible device or emulator, 100% of five consecutive clean build-install-launch attempts show the minimal TapLog shell without a crash.
+specs/002-android-foundation/plan.md:133:| Manual launch | `./gradlew --no-daemon :app:installDebug` | API-26+ emulator/device only | `io.github.thrhead.taplog` installs and its neutral shell launches. |
+specs/002-android-foundation/plan.md:135:The Android/device acceptance run consists of five clean build-install-launch attempts. A missing device or `adb` is a documented prerequisite failure, not a failed Codespaces/CI build.
+Spec/plan unchanged:
+PASS: five-cycle sequence matches the approved five-attempt device acceptance scope.
+```
+
+### Focused documentation checks
+
+Command:
+
+```sh
+git diff --check
+```
+
+Output:
+
+```text
+PASS: git diff --check
+```
+
+The Gradle/device loop itself was not executed because this workspace has no connected-device authorization/environment; the checks verify the executable documentation semantics and preserve the device-only boundary.
+
+## Round 2 Fix Report
+
+### Scoped re-review finding addressed
+
+The five-attempt loop now starts with `set -e`, so a non-zero build, install, or force-stop command terminates the loop. The launch command has explicit failure handling that reports the attempt and exits non-zero. The per-attempt success message is emitted only after those commands pass, and the manual visibility check explicitly requires stopping and reporting failure if the shell is not visible or has crashed.
+
+### Files changed in this fix
+
+- `specs/002-android-foundation/quickstart.md`: added minimal fail-fast and launch status handling to the existing device-only five-attempt loop.
+- `.superpowers/sdd/plan/task-24-report.md`: appended this Round 2 fix report.
+- PRD, `specs/002-android-foundation/spec.md`, and `specs/002-android-foundation/plan.md`: unchanged.
+
+### Focused semantic verification
+
+Command:
+
+```sh
+set -e
+quickstart=specs/002-android-foundation/quickstart.md
+spec=specs/002-android-foundation/spec.md
+plan=specs/002-android-foundation/plan.md
+printf '%s\n' 'Round 2 fail-fast checks:'
+rg -n -F 'set -e' "$quickstart"
+rg -n -F 'if ! adb shell am start -n io.github.thrhead.taplog/.MainActivity; then' "$quickstart"
+rg -n -F 'Attempt ${attempt}/5 failed: launch command returned non-zero.' "$quickstart"
+rg -n -F './gradlew --no-daemon clean :app:assembleDebug' "$quickstart"
+rg -n -F './gradlew --no-daemon :app:installDebug' "$quickstart"
+rg -n -F 'adb shell am force-stop io.github.thrhead.taplog' "$quickstart"
+rg -n -F 'if it fails, stop and report failure.' "$quickstart"
+test "$(rg -c 'for attempt in 1 2 3 4 5' "$quickstart")" = 1
+git diff --quiet -- "$spec" "$plan"
+echo 'PASS: build, install, force-stop, and launch failures cannot continue the loop; manual failure is explicitly non-success.'
+git diff --check
+echo 'PASS: git diff --check'
+```
+
+Output:
+
+```text
+Round 2 fail-fast checks:
+48:   set -e
+54:     if ! adb shell am start -n io.github.thrhead.taplog/.MainActivity; then
+55:       echo "Attempt ${attempt}/5 failed: launch command returned non-zero." >&2
+51:     ./gradlew --no-daemon clean :app:assembleDebug
+52:     ./gradlew --no-daemon :app:installDebug
+53:     adb shell am force-stop io.github.thrhead.taplog
+58:     echo "Attempt ${attempt}/5 commands passed. Verify the static TapLog shell is visible and has not crashed; if it fails, stop and report failure."
+PASS: build, install, force-stop, and launch failures cannot continue the loop; manual failure is explicitly non-success.
+PASS: git diff --check
+```
+
+The device loop was not executed in this workspace because no API-26-or-newer emulator or physical device is available; this round verifies the fail-fast documentation semantics only.
