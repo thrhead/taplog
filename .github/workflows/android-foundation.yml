@@ -1,0 +1,54 @@
+name: Android Foundation CI
+
+on:
+  push:
+    branches:
+      - main
+      - 002-android-foundation
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  foundation-check:
+    name: Foundation Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@b8db5e95450f3b063ee387ef93836d55734c5685 # v3.2.1
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@d156388eb19633375bd4d97184ea5f03828904d1 # v4.0.1
+
+      - name: Run Foundation Verification
+        run: ./gradlew --no-daemon clean foundationCheck
+
+      - name: Upload Verification Reports on Failure
+        if: failure()
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: verification-reports
+          path: |
+            **/build/reports/
+            **/build/outputs/
+          retention-days: 7
