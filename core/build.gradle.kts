@@ -9,3 +9,7 @@ kotlin {
 dependencies {
     testImplementation(libs.junit)
 }
+
+tasks.withType<Test>().configureEach {
+    maxParallelForks = 1
+}
