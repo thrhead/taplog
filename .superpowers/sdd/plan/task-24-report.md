@@ -172,3 +172,56 @@ PASS: git diff --check
 ```
 
 The Gradle/device loop itself was not executed because this workspace has no connected-device authorization/environment; the checks verify the executable documentation semantics and preserve the device-only boundary.
+
+## Round 2 Fix Report
+
+### Scoped re-review finding addressed
+
+The five-attempt loop now starts with `set -e`, so a non-zero build, install, or force-stop command terminates the loop. The launch command has explicit failure handling that reports the attempt and exits non-zero. The per-attempt success message is emitted only after those commands pass, and the manual visibility check explicitly requires stopping and reporting failure if the shell is not visible or has crashed.
+
+### Files changed in this fix
+
+- `specs/002-android-foundation/quickstart.md`: added minimal fail-fast and launch status handling to the existing device-only five-attempt loop.
+- `.superpowers/sdd/plan/task-24-report.md`: appended this Round 2 fix report.
+- PRD, `specs/002-android-foundation/spec.md`, and `specs/002-android-foundation/plan.md`: unchanged.
+
+### Focused semantic verification
+
+Command:
+
+```sh
+set -e
+quickstart=specs/002-android-foundation/quickstart.md
+spec=specs/002-android-foundation/spec.md
+plan=specs/002-android-foundation/plan.md
+printf '%s\n' 'Round 2 fail-fast checks:'
+rg -n -F 'set -e' "$quickstart"
+rg -n -F 'if ! adb shell am start -n io.github.thrhead.taplog/.MainActivity; then' "$quickstart"
+rg -n -F 'Attempt ${attempt}/5 failed: launch command returned non-zero.' "$quickstart"
+rg -n -F './gradlew --no-daemon clean :app:assembleDebug' "$quickstart"
+rg -n -F './gradlew --no-daemon :app:installDebug' "$quickstart"
+rg -n -F 'adb shell am force-stop io.github.thrhead.taplog' "$quickstart"
+rg -n -F 'if it fails, stop and report failure.' "$quickstart"
+test "$(rg -c 'for attempt in 1 2 3 4 5' "$quickstart")" = 1
+git diff --quiet -- "$spec" "$plan"
+echo 'PASS: build, install, force-stop, and launch failures cannot continue the loop; manual failure is explicitly non-success.'
+git diff --check
+echo 'PASS: git diff --check'
+```
+
+Output:
+
+```text
+Round 2 fail-fast checks:
+48:   set -e
+54:     if ! adb shell am start -n io.github.thrhead.taplog/.MainActivity; then
+55:       echo "Attempt ${attempt}/5 failed: launch command returned non-zero." >&2
+51:     ./gradlew --no-daemon clean :app:assembleDebug
+52:     ./gradlew --no-daemon :app:installDebug
+53:     adb shell am force-stop io.github.thrhead.taplog
+58:     echo "Attempt ${attempt}/5 commands passed. Verify the static TapLog shell is visible and has not crashed; if it fails, stop and report failure."
+PASS: build, install, force-stop, and launch failures cannot continue the loop; manual failure is explicitly non-success.
+PASS: git diff --check
+```
+
+The device loop was not executed in this workspace because no API-26-or-newer emulator or physical device is available; this round verifies the fail-fast documentation semantics only.

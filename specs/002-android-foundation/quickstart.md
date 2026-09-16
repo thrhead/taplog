@@ -45,13 +45,17 @@ Open a pull request or push a branch. The Android foundation workflow must run t
 3. Run five complete clean build-install-launch attempts. Each loop iteration cleans and builds the debug app, installs it on the connected API-26-or-newer target, launches the declared launcher activity, and then requires a manual check that the static shell appears without crashing:
 
    ```sh
+   set -e
    for attempt in 1 2 3 4 5; do
      echo "Foundation launch attempt ${attempt}/5"
      ./gradlew --no-daemon clean :app:assembleDebug
      ./gradlew --no-daemon :app:installDebug
      adb shell am force-stop io.github.thrhead.taplog
-     adb shell am start -n io.github.thrhead.taplog/.MainActivity
-     echo "Verify the static TapLog shell is visible and has not crashed, then continue."
+     if ! adb shell am start -n io.github.thrhead.taplog/.MainActivity; then
+       echo "Attempt ${attempt}/5 failed: launch command returned non-zero." >&2
+       exit 1
+     fi
+     echo "Attempt ${attempt}/5 commands passed. Verify the static TapLog shell is visible and has not crashed; if it fails, stop and report failure."
    done
    ```
 
