@@ -77,7 +77,7 @@
 ### Implementation for User Story 3
 
 - [X] T021 [US3] Verify module dependency isolation in `core/build.gradle.kts`, `data/build.gradle.kts`, and `app/build.gradle.kts` enforcing `:core` platform independence and directed graph `:data` → `:core`, `:app` → `:core`,`:data`
-- [ ] T022 [US3] Audit version declarations in `gradle/libs.versions.toml` to ensure zero dynamic or version range declarations exist
+- [X] T022 [US3] Audit version declarations in `gradle/libs.versions.toml` to ensure zero dynamic or version range declarations exist
 
 **Checkpoint**: Architectural boundaries are enforced and reviewable via Gradle dependency reports
 
