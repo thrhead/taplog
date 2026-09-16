@@ -91,17 +91,17 @@
 - [X] T024 [P] Verify foundation validation quickstart guide in `specs/002-android-foundation/quickstart.md`
 - [X] T025 Execute foundation verification suite via `./gradlew --version`, `./gradlew --no-daemon clean foundationCheck`, and `./gradlew :core:dependencies :data:dependencies :app:dependencies` per `quickstart.md`
 
-**T025 verification exception (2026-09-16)**: The completion mark records the
-reviewer-approved JDK 17 environment-prerequisite exception, not a passing
-`foundationCheck`. The original run used a writable Gradle cache and host
-networking: `./gradlew --version` exited 0 with Gradle 9.6.0 on JDK 25.0.4.1,
-and the dependency-report retry exited 0 (`BUILD SUCCESSFUL in 5s`).
-`./gradlew --no-daemon clean foundationCheck` exited 1 when the daemon
-disappeared during Android compilation/dexing; a one-worker retry with increased
-heap also exited 1 during `:app:mergeExtDexDebug`. JDK 17 was unavailable in that
-execution environment. Verification under the approved JDK 17 remains necessary;
-this exception changes neither the required toolchain nor product/spec/plan scope
-and does not establish that the foundation or device acceptance passed.
+**T025 verification recovery (2026-09-16)**: The previous completion exception
+did not establish a passing foundation lane, and its claim that JDK 17 was
+unavailable was incorrect. Systematic investigation captured an externally sent
+`SIGTERM` in a failing run; the sender's policy remains unknown. Two minimal
+1 GiB heap experiments passed while original 2 GiB runs failed. After persisting
+only that heap reduction, the exact `./gradlew --no-daemon clean foundationCheck`
+command passed in an isolated JDK 17 run (exit 0, `BUILD SUCCESSFUL in 1m 26s`).
+Wrapper and dependency-report commands also exited 0. This validates the
+non-device lane, not connected tests or the five device launch attempts; it does
+not guarantee immunity to external termination under other workloads. See the
+[investigation and verification evidence](verification/daemon-investigation.md).
 
 ---
 
