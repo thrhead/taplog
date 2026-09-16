@@ -32,9 +32,9 @@ No local Android SDK or emulator installation is required to develop, compile, t
 
 ## Verification Commands
 
-### 1. Codespaces / CI (Non-Device Verification)
+### 1. Codespaces / Local (Non-Device Verification)
 
-These commands run in GitHub Codespaces and GitHub Actions CI without requiring an emulator, ADB, or physical device:
+Run these commands in GitHub Codespaces or a local environment with the documented JDK and SDK prerequisites, without requiring an emulator, ADB, or physical device. GitHub Actions validates the Gradle Wrapper and runs `./gradlew --no-daemon clean foundationCheck`; the version and dependency reports below are contributor checks, not separate CI steps.
 
 - **Check Toolchain Version**:
   ```bash

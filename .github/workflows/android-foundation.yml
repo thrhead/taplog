@@ -33,12 +33,12 @@ jobs:
           java-version: 17
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@b8db5e95450f3b063ee387ef93836d55734c5685 # v3.2.1
+        uses: android-actions/setup-android@00854ea68c109d98c75d956347303bf7c45b0277 # v3.2.1
         with:
           packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
 
       - name: Validate Gradle Wrapper
-        uses: gradle/actions/wrapper-validation@d156388eb19633375bd4d97184ea5f03828904d1 # v4.0.1
+        uses: gradle/actions/wrapper-validation@16bf8bc8fe830fa669c3c9f914d3eb147c629707 # v4.0.1
 
       - name: Run Foundation Verification
         run: ./gradlew --no-daemon clean foundationCheck

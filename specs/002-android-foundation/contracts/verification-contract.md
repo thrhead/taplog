@@ -15,7 +15,7 @@ This contract is the shared interface for contributors, Codespaces, and GitHub A
 | Command | Supported environment | Contractual outcome |
 | --- | --- | --- |
 | `./gradlew --version` | All | Uses checked-in Gradle 9.6.0 and JDK 17. |
-| `./gradlew --no-daemon clean foundationCheck` | Codespaces, CI, local | Builds app debug artifact, runs `:core:test`, `:data:test`, `:app:testDebugUnitTest`, Android lint, Detekt, and formatting rules without a device. |
+| `./gradlew --no-daemon clean foundationCheck` | Codespaces, CI, local | Builds app debug artifact, runs `:core:test`, `:data:testDebugUnitTest`, `:app:testDebugUnitTest`, `:data:lintDebug`, `:app:lintDebug`, and `:detekt` (including formatting rules) without a device. |
 | `./gradlew :core:dependencies :data:dependencies :app:dependencies` | Codespaces, local | Makes module dependency direction reviewable; `:core` must have no Android artifact. |
 | `./gradlew --no-daemon :app:connectedDebugAndroidTest` | Local device/emulator only | The neutral launcher shell starts and its test passes. |
 | `./gradlew --no-daemon :app:installDebug` | Local device/emulator only | The package installs for manual launch validation. |
