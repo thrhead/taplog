@@ -87,7 +87,7 @@
 
 **Purpose**: Verification and documentation alignment across the foundation slice
 
-- [ ] T023 [P] Verify build and verification contract in `specs/002-android-foundation/contracts/verification-contract.md`
+- [X] T023 [P] Verify build and verification contract in `specs/002-android-foundation/contracts/verification-contract.md`
 - [ ] T024 [P] Verify foundation validation quickstart guide in `specs/002-android-foundation/quickstart.md`
 - [ ] T025 Execute foundation verification suite via `./gradlew --version`, `./gradlew --no-daemon clean foundationCheck`, and `./gradlew :core:dependencies :data:dependencies :app:dependencies` per `quickstart.md`
 
