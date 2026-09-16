@@ -25,10 +25,14 @@ dependencies {
 
 tasks.register("foundationCheck") {
     group = "verification"
-    description = "Runs non-device verification suite: compilation, JVM tests, lint, and Detekt static quality checks."
+    description = "Runs non-device verification suite: assembleDebug, unit tests, lint, and Detekt static quality checks."
     dependsOn(
+        ":app:assembleDebug",
         ":core:test",
         ":data:testDebugUnitTest",
+        ":app:testDebugUnitTest",
+        ":data:lintDebug",
+        ":app:lintDebug",
         ":detekt"
     )
 }

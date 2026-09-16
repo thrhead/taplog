@@ -57,7 +57,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Create `:app` module build definition in `app/build.gradle.kts` declaring `applicationId = "io.github.thrhead.taplog"`, `minSdk = 26`, `compileSdk = 36`, `targetSdk = 36`, Compose BOM 2026.03.00, Activity Compose 1.13.0, Material 3, and module dependencies `:core` and `:data`
+- [X] T015 [US2] Create `:app` module build definition in `app/build.gradle.kts` declaring `applicationId = "io.github.thrhead.taplog"`, `minSdk = 26`, `compileSdk = 36`, `targetSdk = 36`, Compose BOM 2026.03.00, Activity Compose 1.13.0, Material 3, and module dependencies `:core` and `:data`
 - [ ] T016 [P] [US2] Create application manifest in `app/src/main/AndroidManifest.xml` declaring package `io.github.thrhead.taplog`, display name `TapLog`, and single launcher activity
 - [ ] T017 [P] [US2] Create application strings and theme resources in `app/src/main/res/values/strings.xml` and `app/src/main/res/values/themes.xml` for display name `TapLog` and non-product theme
 - [ ] T018 [US2] Implement static neutral shell activity in `app/src/main/java/io/github/thrhead/taplog/MainActivity.kt` presenting a neutral Compose screen identifying `TapLog` with no product workflow or data
