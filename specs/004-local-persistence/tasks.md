@@ -30,7 +30,7 @@ depends on the complete schema and adapter behavior.
 
 - [X] T001 Bootstrap/verify the `:data` Android library module in `settings.gradle.kts` and `data/build.gradle.kts`: include `:data`, set its namespace/minSdk, depend only on `:core`, and establish the source-set/test configuration before adding persistence code.
 - [X] T002 Add Room runtime/compiler through KSP and the existing JVM/Android test dependencies in `data/build.gradle.kts`, keeping Room dependencies confined to `:data`.
-- [ ] T003 Create the persistence package directories under `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence`, `data/src/test/kotlin/io/github/thrhead/taplog/data/persistence`, and `data/src/androidTest/kotlin/io/github/thrhead/taplog/data/persistence`.
+- [X] T003 Create the persistence package directories under `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence`, `data/src/test/kotlin/io/github/thrhead/taplog/data/persistence`, and `data/src/androidTest/kotlin/io/github/thrhead/taplog/data/persistence`.
 - [ ] T004 Add the data-module test fixtures/build configuration, including the test-owned in-memory `LocalPersistence` fake and Android Room fixtures, in `data/src/test/kotlin/io/github/thrhead/taplog/data/persistence/TestFixtures.kt` and `data/src/androidTest/kotlin/io/github/thrhead/taplog/data/persistence/RoomTestFixtures.kt`.
 
 ## Phase 2: Foundational persistence primitives
