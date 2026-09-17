@@ -274,18 +274,11 @@ internal data class BindingUndoInvalidationEntity(
  * Before-image JSON is Undo metadata only, never an Event payload store.
  * Mapping and commit tasks own consumption and invalidation semantics. Expected
  * State context is scalar metadata and does not own a scope/group lifetime.
+ * [eventId] also has no lifetime-owned FK: core single-Event deletion and Undo
+ * can remove the Event while retaining its receipt for later classification.
  */
 @Entity(
     tableName = "undo_receipts",
-    foreignKeys = [
-        ForeignKey(
-            entity = EventEntity::class,
-            parentColumns = ["eventId"],
-            childColumns = ["eventId"],
-            onDelete = ForeignKey.RESTRICT,
-            onUpdate = ForeignKey.RESTRICT,
-        ),
-    ],
     indices = [Index(value = ["eventId"])],
 )
 internal data class UndoReceiptEntity(
