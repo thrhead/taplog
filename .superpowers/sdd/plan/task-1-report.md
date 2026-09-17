@@ -58,3 +58,18 @@ skill's configuration-file exception, no RED/GREEN cycle was applicable.
 - The only concern is environment-level Gradle verification failure described
   above; the configuration and prior generated test result were inspected
   directly.
+
+## Fix-round verification
+
+With Gradle cache access authorized, the normal wrapper command completed
+successfully:
+
+```text
+./gradlew :data:testDebugUnitTest --offline
+BUILD SUCCESSFUL in 10s
+15 actionable tasks: 2 executed, 13 up-to-date
+```
+
+The covering `DataTestScaffoldTest` test lane compiled and ran as part of
+`:data:testDebugUnitTest`; no test failures or errors were reported. Gradle
+emitted only its existing deprecation/features notices.
