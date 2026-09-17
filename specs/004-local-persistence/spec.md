@@ -14,6 +14,20 @@ Bu özellik, uygulanmış/kararlaştırılmış `:core` domain ve kanal-bağıms
 
 Bu dilim yalnızca veri katmanı sözleşmeleri, yerel saklama, eşleme, işlem, şema sürümleme ve kurtarma davranışını kapsar. UI, NFC, Widget, Quick Settings, parser, backup/export/import, statistics, monetization, AI ve sync/cloud kapsam dışıdır.
 
+## Clarifications
+
+### Session 2026-09-17
+
+- Q: Kalıcı veri setinde, core sözleşmesindeki DatasetGeneration dışında ayrı bir global mutation revision saklanmalı mı? → A: A — DatasetGeneration + etkilenen nesnelerin Revision değerleri authoritative olur; ayrı global mutation revision eklenmez.
+- Q: Bir Event snapshotı, olay anındaki hangi değerleri authoritative olarak saklamalı? → A: A — recordId, targetId?, olay anındaki Record/Target name+icon, behavior ve ilgili Counter unit saklanır; canlı tanımdan yeniden oluşturulmaz.
+- Q: Şema sürümleme ve migration işlemlerinin sorumluluğu hangi katmanda olmalı? → A: A — `:data` persistence adapter’ı schema version/migration’ı sahiplenir; atomik başarısızlıkta eski veri korunur ve `StorageFailure` döner.
+- Q: Aynı dataset üzerinde eşzamanlı iki commit olduğunda stale-write koruması nasıl uygulanmalı? → A: A — Persistence adapter commit sırasında beklenen revision/generation değerlerini aynı atomik işlem içinde doğrular; uyuşmazlıkta değişiklik yapmadan `Conflict` döner ve geçerli commit’ler serialize edilir.
+
+Persistence, core sözleşmesinde tanımlanmayan ayrı bir global mutation revision üretmez veya saklamaz. Genel stale bağlamı için DatasetGeneration; Record, Target, relationship, Event, State scope/generation, binding ve Undo için etkilenen nesnenin monotonik Revision değeri authoritative sürüm bilgisidir.
+Event snapshotının authoritative alanları Event Record/Target kimlikleri, olay anındaki Record/Target ad ve ikonları, behavior ve Counter davranışı için olay anındaki optional unittir. Snapshot canlı Record/Target tanımlarından yeniden oluşturulmaz; snapshotta olmayan mutable tanım alanları geçmiş anlamının parçası değildir.
+Schema version ve migration sorumluluğu `:data` persistence adapter’ına aittir. Migration işlemleri atomik olmalı; başarısız migration eski geçerli veriyi değiştirmemeli ve `StorageFailure` üretmelidir. `:core` yalnızca domain invariant doğrulamasını yürütür.
+Eşzamanlı commit’lerde persistence adapter beklenen entity revision, dataset generation ve ilgili scope generation değerlerini aynı atomik işlem içinde compare-and-check ile doğrular. Geçerli commit’ler serialize edilir; beklenen bağlam güncel değilse hiçbir kalıcı değişiklik yapılmadan `Conflict` döner.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Event'i güvenle kalıcılaştır (Priority: P1)
@@ -93,7 +107,7 @@ Kanal veya sonraki yönetim özelliği, eski/stale bir komutun yeni veriyi ezmed
 
 - **FR-001**: Veri katmanı, `DomainState`'in Records, Targets, Record–Target ilişkileri, State Groups, Events, current State bilgisi, State generations, dataset metadata, bindings ve UndoReceipt alanlarını kayıpsız okuyup yazmalıdır. (003 `TransactionBoundary`/data model; PRD §§5–7, 43.)
 - **FR-002**: Persisted modeller, core domain modellerinden ayrı bir saklama temsili olmalı; iki yönlü mapping tüm kimlik, enum/discriminator, nullable scope, zaman, revision, sequence, snapshot ve payload değerlerini korumalıdır. Core domain Android/framework bağımsız kalmalıdır. (Anayasa I, V; 002 FR-007–009.)
-- **FR-003**: Event persistence, Event'in immutable identity/reference'larını, `occurredAt`, `createdAt`, `updatedAt`, `sequence`, `source`, revision, behavior snapshot'ını ve yalnız ilgili Moment/Counter/Duration/State payload'ını saklamalıdır. Geçmiş Event canlı Record/Target adından yeniden oluşturulmamalıdır. (PRD §§5, 12, 32; 003 FR-005–006, FR-017.)
+- **FR-003**: Event persistence, Eventin immutable identity/reference'larını, occurredAt, createdAt, updatedAt, sequence, source, revision ve authoritative snapshot alanlarını (recordId, targetId?, olay anındaki Record/Target name+icon, behavior ve Counter için optional unit) ve yalnız ilgili Moment/Counter/Duration/State payloadını saklamalıdır. Geçmiş Event canlı Record/Target adından yeniden oluşturulmamalıdır. (PRD §§5, 12, 32; 003 FR-005–006, FR-017.)
 - **FR-004**: Duration state `OPEN`, `COMPLETED`, `INCOMPLETE` kurallarını saklama ve okuma sırasında korumalı; INCOMPLETE için end timestamp uydurmamalı ve terminal kayıtları yeniden açmamalıdır. (PRD §32; 003 FR-011–014.)
 - **FR-005**: State-group state, StateScope başına current Record referansı, generation ve reset sınırlarını tarihsel Event'leri silmeden korumalıdır. (PRD §7.4, §44.1 item 4; 003 FR-015–016.)
 - **FR-006**: İlişki lifecycle'ı linked/unlinked, definition lifecycle'ı active/archived ve binding lifecycle'ı active/orphaned ayrımlarını korumalı; archive/unlink sonrası etkilenen açık süre, State, binding snapshot ve Undo metadata etkileri tek commit'te saklanmalıdır. (PRD §§18, 28–32; 003 FR-014, FR-019.)
@@ -103,8 +117,10 @@ Kanal veya sonraki yönetim özelliği, eski/stale bir komutun yeni veriyi ezmed
 - **FR-010**: Commit başarısızlığında tüm değişiklikler geri alınmış görünmeli, çağıran katman `StorageFailure` almalı ve non-Applied sonuçlar committed Event id/revision iddiasında bulunmamalıdır. (003 `EngineResult`; anayasa III.)
 - **FR-011**: Permanent delete için impact kapsamı ve confirmation sonucu veri katmanına taşınmalı; onaylanan Record/Target, ilgili Event/snapshot/relationships/bindings/Undo metadata birlikte kaldırılmalı, unrelated history korunmalıdır. (PRD §§29–31; 003 contract.)
 - **FR-012**: Archive/unlink normal silme değildir; kimlikleri ve geçmişi korumalı, unarchive kimlikleri koruyarak yalnız aktif kullanım uygunluğunu geri getirmeli ve terminal lifecycle etkilerini tersine çevirmemelidir. (PRD §§28–32; 003 FR-018–019.)
-- **FR-013**: Şema sürümü, migration sorumluluğu ve mevcut veri formatının hangi sürümde okunduğu açıkça yönetilmelidir. Migration'lar non-destructive olmalı, invariant'ları doğrulamalı, destructive fallback kullanmamalı ve başarısız migration mevcut geçerli veriyi değiştirmemelidir. (001 data model; 002 foundation; PRD §44.)
-- **FR-014**: Kimlik, revision, dataset generation, State generation ve sequence değerleri yeniden açılışta korunmalı; yeni dataset generation gerektiren bir değişiklikte eski callback/Undo bağlamı stale kabul edilmelidir. (003 data model/contract.)
+- **FR-013**: Şema sürümü ve migration sorumluluğu `:data` persistence adapter’ında açıkça yönetilmeli; mevcut veri formatının hangi sürümde okunduğu kaydedilmelidir. Migration'lar atomik ve non-destructive olmalı, invariant'ları doğrulamalı, destructive fallback kullanmamalı ve başarısız migration mevcut geçerli veriyi değiştirmeden `StorageFailure` üretmelidir. `:core` migration teknolojisi veya şema bilgisi taşımamalıdır. (001 data model; 002 foundation; PRD §44.)
+- **FR-014**: Kimlik, etkilenen nesne revision'ları, dataset generation, State generation ve sequence değerleri yeniden açılışta korunmalı; ayrı global mutation revision saklanmamalıdır. Yeni dataset generation gerektiren bir değişiklikte eski callback/Undo bağlamı stale kabul edilmelidir. (003 data model/contract.)
+- **FR-014**: Kimlik, etkilenen nesne revision'ları, dataset generation, State generation ve sequence değerleri yeniden açılışta korunmalı; ayrı global mutation revision saklanmamalıdır. Yeni dataset generation gerektiren bir değişiklikte eski callback/Undo bağlamı stale kabul edilmelidir. (003 data model/contract.)
+- **FR-014a**: Eşzamanlı commit’lerde adapter, beklenen revision/generation değerlerini commit ile aynı atomik işlemde doğrulamalı; geçerli commit’leri serialize etmeli ve stale bağlamda kalıcı değişiklik yapmadan `Conflict` döndürmelidir.
 - **FR-015**: Veri katmanı tamamen local-first çalışmalı; core Event logging için hesap, ağ veya sunucu erişimi gerektirmemelidir. Geçici ağ yokluğu hiçbir yerel commit'i başarısız kılmamalıdır. (PRD §§34, 37, 43; anayasa II.)
 - **FR-016**: Repository/data-access sınırları, core domain'in kalıcı saklama teknolojisini bilmemesini; data adapter'ın Android/framework bağımlılıklarını `:data` sınırında tutmasını ve `:data → :core` bağımlılık yönünü korumasını sağlamalıdır. (002 FR-007–009; 001 architecture.)
 - **FR-017**: Persisted verinin her okuması domain'e aktarılmadan önce discriminator, ilişkiler, lifecycle, revision, timestamps, sequence, Duration, State ve scope invariant'larını doğrulamalı; geçersiz veriyi sessizce düzeltmek yerine kararlı ve sınıflandırılabilir hata üretmelidir. (003 edge cases; anayasa III, V.)
@@ -121,7 +137,7 @@ Kanal veya sonraki yönetim özelliği, eski/stale bir komutun yeni veriyi ezmed
 - **State Scope State**: State Group + optional Target kapsamının current referansı, generation ve reset sınırı.
 - **Binding Lifecycle Metadata**: Channel-independent binding identity, scope, lifecycle, revision ve son bilinen display snapshot; kanal uygulaması değildir.
 - **UndoReceipt**: Sınırlı, revision/generation güvenlik bağlamı olan düzeltme metadata'sı; audit değildir.
-- **Dataset Metadata**: Dataset generation, mutation revision ve next sequence gibi yeniden açılış ve stale-context korumaları.
+- **Dataset Metadata**: Dataset generation ve next sequence gibi yeniden açılış ve stale-context korumaları; ayrı global mutation revision içermez.
 - **Schema Version**: Persisted formatın sürümü ve desteklenen migration geçmişi.
 
 ## Success Criteria *(mandatory)*
