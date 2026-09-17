@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.ksp)
 }
 
 
@@ -9,6 +10,7 @@ android {
 
     defaultConfig {
         minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -19,5 +21,11 @@ android {
 
 dependencies {
     implementation(project(":core"))
+    implementation(libs.room.runtime)
+    ksp(libs.room.compiler)
+
     testImplementation(libs.junit)
+
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 }
