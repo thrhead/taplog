@@ -16,6 +16,117 @@ import java.util.UUID
 class RoomLocalPersistenceRoomTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    // Catches scope collisions, wrong chronology/generation selection, or history loss on scope updates/reopen.
+    @Test
+    fun stagedStateScopesRecoverExclusivityAndRetainStaleHistoryAcrossNormalReopen() = withDatabaseName { name ->
+        val expected = stateAggregate()
+        val groupScope = StateScope(StateGroupId("group"), null)
+        withDatabase(name) { database ->
+            database.runInTransaction {
+                val dao = database.persistenceDao()
+                val persistence = RoomLocalPersistence(database)
+                persistence.writeStateGroupsAndScopes(expected.copy(
+                    stateGenerations = expected.stateGenerations.filterValues { it != DatasetGeneration(0) }), dao)
+                persistence.writeRecordsAndTargets(expected, dao)
+                persistence.writeEvents(expected.copy(events = expected.events.reversed()), dao)
+                dao.upsertMetadata(PersistenceMapper.toRows(expected).metadata)
+            }
+            assertEquals(expected, RoomLocalPersistence(database).read())
+        }
+        val advanced = expected.copy(stateGenerations = expected.stateGenerations + (groupScope to DatasetGeneration(3)),
+            currentStates = expected.currentStates - groupScope)
+        withDatabase(name) { database ->
+            val dao = database.persistenceDao()
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(expected, persistence.read())
+            assertEquals("active-latest", dao.readCurrentState("group", "no-target")!!.eventId)
+            assertEquals("target", dao.readCurrentState("group", "target:no-target")!!.eventId)
+            assertEquals("other", dao.readCurrentState("other", "no-target")!!.eventId)
+            assertEquals(null, dao.readCurrentState("other", "target:no-target"))
+            assertEquals(listOf("active-high-sequence", "active-first", "stale-newer"),
+                dao.readScopeEvents("state-a", "no-target").map { it.eventId })
+            assertEquals(listOf("active-latest"), dao.readScopeEvents("state-b", "no-target").map { it.eventId })
+            database.runInTransaction { persistence.writeStateGroupsAndScopes(advanced, dao) }
+            assertEquals(advanced, persistence.read())
+            assertEquals(null, dao.readCurrentState("group", "no-target"))
+            assertEquals(6, dao.readEvents().size)
+            assertEquals(3, dao.readStateScopes().size)
+        }
+        val replacement = expected.events[4].copy(id = EventId("replacement"), recordId = RecordId("state-a"),
+            occurredAt = EpochMillis(1000), sequence = Sequence(8), payload = EventPayload.State(StateGroupId("group"), DatasetGeneration(3)))
+        val replaced = advanced.copy(events = advanced.events + replacement,
+            currentStates = advanced.currentStates + (groupScope to RecordId("state-a")))
+        withDatabase(name) { database ->
+            val dao = database.persistenceDao()
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(advanced, persistence.read())
+            database.runInTransaction {
+                persistence.writeStateGroupsAndScopes(replaced, dao)
+                persistence.writeEvents(replaced, dao)
+            }
+        }
+        withDatabase(name) { database ->
+            val dao = database.persistenceDao()
+            assertEquals(replaced, RoomLocalPersistence(database).read())
+            assertEquals("replacement", dao.readCurrentState("group", "no-target")!!.eventId)
+            assertEquals("target", dao.readCurrentState("group", "target:no-target")!!.eventId)
+            assertEquals("other", dao.readCurrentState("other", "no-target")!!.eventId)
+            assertEquals(7, dao.readEvents().size)
+            assertEquals(3, dao.readStateScopes().size)
+        }
+    }
+
+    // Catches silent reset-field loss in the staged writer and repair during normal reopen.
+    @Test
+    fun unsupportedStateResetMetadataFailsClosedWithoutChangingStoredStateFamilies() = withDatabaseName { name ->
+        val state = stateAggregate()
+        withDatabase(name) { database ->
+            seed(database, state)
+            val dao = database.persistenceDao()
+            val scope = dao.readStateScope("group", "no-target")!!
+            dao.upsertStateScopes(listOf(scope.copy(resetSequence = 9, resetAt = 100)))
+        }
+        repeat(2) {
+            withDatabase(name) { database ->
+                val dao = database.persistenceDao()
+                val groups = dao.readStateGroups()
+                val scopes = dao.readStateScopes()
+                val events = dao.readEvents()
+                val persistence = RoomLocalPersistence(database)
+                assertThrows(MappingFailure::class.java) { persistence.read() }
+                assertThrows(MappingFailure::class.java) {
+                    database.runInTransaction { persistence.writeStateGroupsAndScopes(state.copy(
+                        stateGroups = state.stateGroups.mapValues { (_, group) -> group.copy(name = "must not be written") }), dao) }
+                }
+                assertEquals(groups, dao.readStateGroups())
+                assertEquals(scopes, dao.readStateScopes())
+                assertEquals(events, dao.readEvents())
+                assertEquals(9L, dao.readStateScope("group", "no-target")!!.resetSequence)
+                assertEquals(100L, dao.readStateScope("group", "no-target")!!.resetAt)
+            }
+        }
+    }
+
+    // Catches a phase opening/publishing its own transaction instead of participating in the caller's.
+    @Test
+    fun callerAbortedStateGroupAndScopeWritesDoNotSurviveReopen() = withDatabaseName { name ->
+        val state = stateAggregate()
+        withDatabase(name) { database ->
+            seed(database, state)
+            assertThrows(IllegalStateException::class.java) {
+                database.runInTransaction {
+                    RoomLocalPersistence(database).writeStateGroupsAndScopes(state.copy(
+                        stateGroups = state.stateGroups.mapValues { (_, group) -> group.copy(name = "edited") },
+                        stateGenerations = state.stateGenerations + (StateScope(StateGroupId("group"), null) to DatasetGeneration(3)),
+                        currentStates = state.currentStates - StateScope(StateGroupId("group"), null)), database.persistenceDao())
+                    error("caller abort")
+                }
+            }
+            assertEquals(state, RoomLocalPersistence(database).read())
+        }
+        withDatabase(name) { assertEquals(state, RoomLocalPersistence(it).read()) }
+    }
+
     // Catches scope-key collisions, index loss on normal identity-hash reopen, and partial staged writes.
     @Test
     fun stagedDurationScopesRecoverAndStoredOpenConflictsRollBackAfterReopen() = withDatabaseName { name ->
@@ -291,6 +402,36 @@ class RoomLocalPersistenceRoomTest {
     private fun withDatabaseName(block: (String) -> Unit) {
         val name = "taplog-t011-${UUID.randomUUID()}.db"
         try { block(name) } finally { context.deleteDatabase(name) }
+    }
+
+    private fun stateAggregate(): DomainState {
+        val group = StateGroupId("group")
+        val other = StateGroupId("other")
+        val target = TargetId("no-target")
+        val records = listOf(
+            Record(RecordId("state-a"), "A", null, Behavior.STATE, stateGroupId = group, hasEvents = true),
+            Record(RecordId("state-b"), "B", null, Behavior.STATE, stateGroupId = group, hasEvents = true),
+            Record(RecordId("other-state"), "Other", null, Behavior.STATE, stateGroupId = other, hasEvents = true),
+        ).associateBy { it.id }
+        fun event(id: String, record: String, scopeTarget: TargetId?, generation: Long, at: Long, sequence: Long) = Event(
+            EventId(id), RecordId(record), scopeTarget, Behavior.STATE, EpochMillis(at), EpochMillis(1), EpochMillis(2),
+            Sequence(sequence), Source.APP, Revision(3), EventSnapshot("historic $record", null,
+                if (scopeTarget == null) null else "historic target", null, Behavior.STATE, null),
+            EventPayload.State(records.getValue(RecordId(record)).stateGroupId!!, DatasetGeneration(generation)),
+        )
+        return DomainState(records = records, targets = mapOf(target to Target(target, "Target", null)),
+            stateGroups = mapOf(group to StateGroup(group, "Group", Revision(4)), other to StateGroup(other, "Other", Revision(5))),
+            events = listOf(event("target", "state-a", target, 0, 100, 5),
+                event("other", "other-state", null, 0, 100, 6),
+                event("active-high-sequence", "state-a", null, 2, 109, 7),
+                event("active-first", "state-a", null, 2, 110, 2),
+                event("active-latest", "state-b", null, 2, 110, 3),
+                event("stale-newer", "state-a", null, 1, 999, 1)),
+            nextSequence = Sequence(20),
+            currentStates = mapOf(StateScope(group, null) to RecordId("state-b"), StateScope(group, target) to RecordId("state-a"),
+                StateScope(other, null) to RecordId("other-state")),
+            stateGenerations = mapOf(StateScope(group, null) to DatasetGeneration(2), StateScope(group, target) to DatasetGeneration(0),
+                StateScope(other, null) to DatasetGeneration(0)))
     }
 
     private fun durationAggregate(): DomainState {

@@ -71,6 +71,24 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         if (rows.events.isNotEmpty()) dao.upsertEvents(rows.events)
     }
 
+    /**
+     * State Group/scope upsert phase for T027's compare/write transaction. Run before
+     * Record/Event phases so their State Group parents exist. Scope rows retain the
+     * supplied current pointer and generation; omitted scopes and history are untouched.
+     * Validate both the supplied aggregate and stored unsupported reset context before
+     * any write. DomainState cannot represent reset fields, so overwriting them would
+     * silently discard data. The caller must keep the reads and writes in one transaction.
+     */
+    internal fun writeStateGroupsAndScopes(state: DomainState, dao: PersistenceDao) {
+        val rows = PersistenceMapper.toRows(state)
+        dao.readStateScopes().forEach {
+            PersistenceMapper.requireInvariant(it.resetSequence == null && it.resetAt == null,
+                "State reset metadata is not represented by DomainState")
+        }
+        if (rows.stateGroups.isNotEmpty()) dao.upsertStateGroups(rows.stateGroups)
+        if (rows.stateScopes.isNotEmpty()) dao.upsertStateScopes(rows.stateScopes)
+    }
+
     // The complete atomic write boundary belongs to T027.
     override fun commit(operation: CommitOperation): Boolean =
         throw UnsupportedOperationException("Atomic commits are not implemented")

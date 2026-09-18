@@ -15,6 +15,87 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches missing State upserts, scope collisions, and accidental writes to other families.
+    @Test
+    fun stateGroupAndScopeWritesRetainHistoryAndRecoverExclusivePointers() {
+        val expected = stateAggregate()
+        val original = PersistenceMapper.toRows(expected)
+        val database = SnapshotDatabase(original.copy(stateGroups = emptyList(), stateScopes = emptyList()))
+        RoomLocalPersistence(database).writeStateGroupsAndScopes(expected, database.persistenceDao())
+        assertEquals(original, database.committed)
+        assertEquals(expected, RoomLocalPersistence(SnapshotDatabase(database.committed)).read())
+        assertEquals(listOf(
+            StateScopeEntity("group", "no-target", 2, "state-b"),
+            StateScopeEntity("group", "target:no-target", 0, "state-a"),
+            StateScopeEntity("other", "no-target", 0, "other-state"),
+        ), database.committed.stateScopes)
+
+        val updated = expected.copy(
+            stateGroups = expected.stateGroups.mapValues { (_, group) -> group.copy(name = "edited", revision = Revision(8)) },
+            currentStates = expected.currentStates + (StateScope(StateGroupId("group"), null) to RecordId("state-a")),
+        )
+        RoomLocalPersistence(database).writeStateGroupsAndScopes(updated, database.persistenceDao())
+        assertEquals(updated, RoomLocalPersistence(SnapshotDatabase(database.committed)).read())
+        assertEquals(original, database.committed.copy(stateGroups = original.stateGroups, stateScopes = original.stateScopes))
+        RoomLocalPersistence(database).writeStateGroupsAndScopes(DomainState(), database.persistenceDao())
+        assertEquals(updated, RoomLocalPersistence(database).read())
+    }
+
+    // Catches failure to materialize a current scope's implicit zero, or invented scopes for history only.
+    @Test
+    fun implicitZeroAndRetainedContextualIdsSurviveStateScopeRecovery() {
+        val state = stateAggregate().let { state -> state.copy(
+            stateGenerations = state.stateGenerations.filterValues { it != DatasetGeneration(0) },
+            currentStates = state.currentStates + (StateScope(StateGroupId("other"), null) to RecordId("deleted")),
+        ) }
+        val database = SnapshotDatabase(PersistenceMapper.toRows(state).copy(stateScopes = emptyList()))
+        RoomLocalPersistence(database).writeStateGroupsAndScopes(state, database.persistenceDao())
+        val recovered = RoomLocalPersistence(SnapshotDatabase(database.committed)).read()
+        assertEquals(DatasetGeneration(0), recovered.stateGenerations[StateScope(StateGroupId("group"), TargetId("no-target"))])
+        assertEquals(RecordId("deleted"), recovered.currentStates[StateScope(StateGroupId("other"), null)])
+        val historyOnly = state.copy(currentStates = emptyMap(), stateGenerations = emptyMap(),
+            events = state.events.filter { (it.payload as EventPayload.State).generation == DatasetGeneration(0) })
+        val emptyScopes = SnapshotDatabase(PersistenceMapper.toRows(historyOnly))
+        RoomLocalPersistence(emptyScopes).writeStateGroupsAndScopes(historyOnly, emptyScopes.persistenceDao())
+        assertEquals(emptyList<StateScopeEntity>(), emptyScopes.committed.stateScopes)
+        assertEquals(historyOnly, RoomLocalPersistence(emptyScopes).read())
+    }
+
+    // Catches partial writes before canonical scope/generation validation.
+    @Test
+    fun invalidStateGenerationFailsBeforeAnyStateFamilyWrite() {
+        val state = stateAggregate()
+        val rows = PersistenceMapper.toRows(state)
+        val database = SnapshotDatabase(rows)
+        val invalid = state.copy(
+            stateGroups = state.stateGroups.mapValues { (_, group) -> group.copy(name = "must not be written") },
+            stateGenerations = state.stateGenerations + (StateScope(StateGroupId("group"), null) to DatasetGeneration(1)))
+        assertThrows(MappingFailure::class.java) {
+            RoomLocalPersistence(database).writeStateGroupsAndScopes(invalid, database.persistenceDao())
+        }
+        assertEquals(rows, database.committed)
+    }
+
+    // Catches silent clearing of unsupported reset context during State upsert or recovery.
+    @Test
+    fun unsupportedResetMetadataRejectsReadsAndWritesWithoutChangingStoredRows() {
+        val state = stateAggregate()
+        val rows = PersistenceMapper.toRows(state)
+        listOf(Sequence(9).value to null, null to EpochMillis(100).value, 9L to 100L).forEach { (sequence, at) ->
+            val unsupported = rows.copy(stateScopes = rows.stateScopes.mapIndexed { index, scope ->
+                if (index == 0) scope.copy(resetSequence = sequence, resetAt = at) else scope
+            })
+            val database = SnapshotDatabase(unsupported)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).read() }
+            assertThrows(MappingFailure::class.java) {
+                RoomLocalPersistence(database).writeStateGroupsAndScopes(state.copy(
+                    stateGroups = state.stateGroups.mapValues { (_, group) -> group.copy(name = "must not be written") }),
+                    database.persistenceDao())
+            }
+            assertEquals(unsupported, database.committed)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(SnapshotDatabase(database.committed)).read() }
+        }
+    }
     // Catches null/real Target scope collisions and recovery that reopens or timestamps terminal history.
     @Test
     fun durationRecoveryRetainsExactScopesAndTerminalHistoryAfterStagedUpdates() {
@@ -372,6 +453,21 @@ class RoomLocalPersistenceTest {
 
         override fun persistenceDao(): PersistenceDao = proxyWithArguments(PersistenceDao::class.java) { method, arguments ->
             when (method) {
+                "readStateScopes" -> if (snapshot == null) return@proxyWithArguments committed.stateScopes
+                "upsertStateGroups" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<StateGroupEntity>
+                    committed = committed.copy(stateGroups = (committed.stateGroups.associateBy { it.stateGroupId } +
+                        rows.associateBy { it.stateGroupId }).values.toList())
+                    return@proxyWithArguments null
+                }
+                "upsertStateScopes" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<StateScopeEntity>
+                    committed = committed.copy(stateScopes = (committed.stateScopes.associateBy { it.stateGroupId to it.targetScopeKey } +
+                        rows.associateBy { it.stateGroupId to it.targetScopeKey }).values.toList())
+                    return@proxyWithArguments null
+                }
                 "upsertRecords" -> {
                     @Suppress("UNCHECKED_CAST")
                     val rows = arguments!![0] as List<RecordEntity>
@@ -423,6 +519,36 @@ class RoomLocalPersistenceTest {
         private fun <T : Any> proxyWithArguments(type: Class<T>, block: (String, Array<out Any?>?) -> Any?): T = requireNotNull(type.cast(
             Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { _, method, arguments -> block(method.name, arguments) },
         ))
+    }
+
+    private fun stateAggregate(): DomainState {
+        val group = StateGroupId("group")
+        val other = StateGroupId("other")
+        val target = TargetId("no-target")
+        val records = listOf(
+            Record(RecordId("state-a"), "A", null, Behavior.STATE, stateGroupId = group, hasEvents = true),
+            Record(RecordId("state-b"), "B", null, Behavior.STATE, stateGroupId = group, hasEvents = true),
+            Record(RecordId("other-state"), "Other", null, Behavior.STATE, stateGroupId = other, hasEvents = true),
+        ).associateBy { it.id }
+        fun event(id: String, record: String, scopeTarget: TargetId?, generation: Long, at: Long, sequence: Long) = Event(
+            EventId(id), RecordId(record), scopeTarget, Behavior.STATE, EpochMillis(at), EpochMillis(1), EpochMillis(2),
+            Sequence(sequence), Source.APP, Revision(3), EventSnapshot("historic $record", null,
+                if (scopeTarget == null) null else "historic target", null, Behavior.STATE, null),
+            EventPayload.State(records.getValue(RecordId(record)).stateGroupId!!, DatasetGeneration(generation)),
+        )
+        return DomainState(records = records, targets = mapOf(target to Target(target, "Target", null)),
+            stateGroups = mapOf(group to StateGroup(group, "Group", Revision(4)), other to StateGroup(other, "Other", Revision(5))),
+            events = listOf(event("target", "state-a", target, 0, 100, 5),
+                event("other", "other-state", null, 0, 100, 6),
+                event("active-high-sequence", "state-a", null, 2, 109, 7),
+                event("active-first", "state-a", null, 2, 110, 2),
+                event("active-latest", "state-b", null, 2, 110, 3),
+                event("stale-newer", "state-a", null, 1, 999, 1)),
+            nextSequence = Sequence(20),
+            currentStates = mapOf(StateScope(group, null) to RecordId("state-b"), StateScope(group, target) to RecordId("state-a"),
+                StateScope(other, null) to RecordId("other-state")),
+            stateGenerations = mapOf(StateScope(group, null) to DatasetGeneration(2), StateScope(group, target) to DatasetGeneration(0),
+                StateScope(other, null) to DatasetGeneration(0)))
     }
 
     private fun durationAggregate(): DomainState {
