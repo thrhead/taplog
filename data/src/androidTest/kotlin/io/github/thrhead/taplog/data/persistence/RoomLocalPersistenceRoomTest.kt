@@ -17,6 +17,51 @@ class RoomLocalPersistenceRoomTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
+    fun stagedEventRowsSurviveReopenWithHistoricalSnapshotsAndExactChronology() = withDatabaseName { name ->
+        val expected = aggregate().let { state -> state.copy(events = state.events.map { it.copy(
+            occurredAt = EpochMillis(100), createdAt = EpochMillis(-100), updatedAt = EpochMillis(200),
+            source = Source.APP, revision = Revision(8),
+        ) }) }
+        withDatabase(name) { database ->
+            seed(database, expected.copy(events = emptyList()))
+            database.runInTransaction {
+                RoomLocalPersistence(database).writeEvents(expected.copy(events = expected.events.reversed()), database.persistenceDao())
+            }
+            assertEquals(expected, RoomLocalPersistence(database).read())
+            assertEquals(listOf(1L, 2L, 3L, 4L), database.persistenceDao().readEvents().map { it.sequence })
+            val counter = database.persistenceDao().readEvent("event-2")!!
+            assertEquals("1.25", counter.counterQuantity)
+            assertEquals("old unit", counter.counterUnit)
+            assertEquals("old counter", counter.snapshotRecordName)
+            assertEquals("old target", counter.snapshotTargetName)
+        }
+        withDatabase(name) { database ->
+            assertEquals(expected, RoomLocalPersistence(database).read())
+            database.runInTransaction {
+                RoomLocalPersistence(database).writeEvents(DomainState(), database.persistenceDao())
+            }
+            assertEquals(expected, RoomLocalPersistence(database).read())
+        }
+    }
+
+    @Test
+    fun callerTransactionRollsBackStagedEventUpdates() = withDatabaseName { name ->
+        val before = aggregate()
+        val edited = before.copy(events = before.events.map { it.copy(updatedAt = EpochMillis(99), revision = Revision(9)) })
+        withDatabase(name) { database ->
+            seed(database, before)
+            assertThrows(IllegalStateException::class.java) {
+                database.runInTransaction {
+                    RoomLocalPersistence(database).writeEvents(edited, database.persistenceDao())
+                    error("Abort after Event phase")
+                }
+            }
+            assertEquals(before, RoomLocalPersistence(database).read())
+        }
+        withDatabase(name) { assertEquals(before, RoomLocalPersistence(it).read()) }
+    }
+
+    @Test
     fun recordAndTargetUpdatesSurviveReopenWithOriginalHistory() = withDatabaseName { name ->
         val before = aggregate()
         val expected = before.copy(

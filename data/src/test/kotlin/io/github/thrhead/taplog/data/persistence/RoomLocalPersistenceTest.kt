@@ -15,6 +15,117 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches omitted Event upserts, lossy fields, live-definition snapshots, and other-family writes.
+    @Test
+    fun writesAllEventFieldsAndOnlyTheirTypedPayloadColumns() {
+        val expected = aggregate().let { state -> state.copy(events = state.events.map { event -> event.copy(
+            occurredAt = EpochMillis(100), createdAt = EpochMillis(-100), updatedAt = EpochMillis(200),
+            source = Source.APP, revision = Revision(8),
+        ) }) }
+        val before = expected.copy(events = emptyList())
+        val rows = PersistenceMapper.toRows(before)
+        val database = SnapshotDatabase(rows)
+        val counter = expected.events[1]
+        val input = expected.copy(events = expected.events.map { if (it.id == counter.id) it.copy(
+            payload = EventPayload.Counter(Quantity.exact("1.2500")!!, UnitName("historical unit")),
+        ) else it }.reversed())
+
+        val persistence = RoomLocalPersistence(database)
+        persistence.writeEvents(input, database.persistenceDao())
+
+        assertEquals(expected, persistence.read())
+        assertEquals(rows, database.committed.copy(events = emptyList()))
+        val payloads = mapOf(
+            "event-1" to listOf(null, null, null, null, null, null, null, null),
+            "event-2" to listOf("1.25", "historical unit", null, null, null, null, null, null),
+            "event-3" to listOf(null, null, 10L, null, "OPEN", null, null, null),
+            "event-4" to listOf(null, null, null, null, null, null, "group", 2L),
+        )
+        database.committed.events.forEach { row ->
+            assertEquals(payloads.getValue(row.eventId), listOf(row.counterQuantity, row.counterUnit,
+                row.durationStartAt, row.durationEndAt, row.durationStatus, row.durationIncompleteReason,
+                row.stateGroupId, row.stateGeneration))
+        }
+        assertEquals(listOf(1L, 2L, 3L, 4L), persistence.read().events.map { it.sequence.value })
+        assertEquals("historical counter", persistence.read().events[1].snapshot.recordName)
+        assertEquals(UnitName("historical unit"), persistence.read().events[1].snapshot.unit)
+    }
+
+    // Catches duplicate inserts on update and deletion of Event rows omitted from this phase.
+    @Test
+    fun eventUpdatesRetainIdentitySnapshotsAndOmittedHistory() {
+        val before = aggregate()
+        val updated = before.events[0].copy(occurredAt = EpochMillis(99), updatedAt = EpochMillis(101), revision = Revision(9))
+        val database = SnapshotDatabase(PersistenceMapper.toRows(before))
+        val persistence = RoomLocalPersistence(database)
+
+        persistence.writeEvents(before.copy(events = listOf(updated)), database.persistenceDao())
+        persistence.writeEvents(DomainState(), database.persistenceDao())
+
+        assertEquals(before.copy(events = before.events.drop(1) + updated), persistence.read())
+        assertEquals(4, database.committed.events.size)
+        assertEquals(before.events[0].snapshot, persistence.read().events.last().snapshot)
+    }
+
+    // Catches writes before FK, generation, uniqueness, or aggregate validation.
+    @Test
+    fun invalidEventsFailBeforeAnyEventIsWritten() {
+        val before = aggregate()
+        val moment = before.events[0]
+        val state = before.events[3]
+        val invalidEvents = listOf(
+            moment.copy(recordId = RecordId("missing")),
+            moment.copy(targetId = TargetId("missing")),
+            state.copy(payload = EventPayload.State(StateGroupId("missing"), DatasetGeneration(2))),
+            state.copy(payload = EventPayload.State(StateGroupId("group"), DatasetGeneration(3))),
+            moment.copy(sequence = Sequence(0)),
+            moment.copy(sequence = before.nextSequence),
+            moment.copy(revision = Revision(-1)),
+        )
+        val invalid = invalidEvents.map { event -> before.copy(events = before.events.map {
+            if (it.id == event.id) event else it
+        }) } + listOf(
+            before.copy(events = before.events + moment.copy(id = EventId("duplicate-sequence"))),
+            before.copy(events = before.events + moment.copy(sequence = Sequence(5))),
+            before.copy(generation = DatasetGeneration(-1)),
+        )
+        invalid.forEach { input ->
+            val rows = PersistenceMapper.toRows(before)
+            val database = SnapshotDatabase(rows)
+            assertThrows(MappingFailure::class.java) {
+                RoomLocalPersistence(database).writeEvents(input, database.persistenceDao())
+            }
+            assertEquals(rows, database.committed)
+        }
+    }
+
+    // Catches loss of nullable Counter units or supplied terminal Duration fields.
+    @Test
+    fun retainsUnitlessCounterAndSuppliedTerminalDurationPayloads() {
+        val before = aggregate()
+        val counter = before.events[1].copy(payload = EventPayload.Counter(Quantity.exact("0.125")!!, null),
+            snapshot = before.events[1].snapshot.copy(unit = null))
+        val completed = before.events[2].copy(payload = EventPayload.Duration(EpochMillis(10), EpochMillis(30), DurationStatus.COMPLETED))
+        val incomplete = completed.copy(id = EventId("incomplete"), sequence = Sequence(5),
+            payload = EventPayload.Duration(EpochMillis(10), null, DurationStatus.INCOMPLETE, "interrupted"))
+        val expected = before.copy(events = listOf(before.events[0], counter, completed, before.events[3], incomplete))
+        val database = SnapshotDatabase(PersistenceMapper.toRows(before.copy(events = emptyList())))
+        val persistence = RoomLocalPersistence(database)
+
+        persistence.writeEvents(expected, database.persistenceDao())
+
+        assertEquals(expected, persistence.read())
+        val rows = database.committed.events.associateBy { it.eventId }
+        assertEquals("0.125", rows.getValue("event-2").counterQuantity)
+        assertEquals(null, rows.getValue("event-2").counterUnit)
+        assertEquals(listOf(10L, 30L, "COMPLETED", null), rows.getValue("event-3").let {
+            listOf(it.durationStartAt, it.durationEndAt, it.durationStatus, it.durationIncompleteReason)
+        })
+        assertEquals(listOf(10L, null, "INCOMPLETE", "interrupted"), rows.getValue("incomplete").let {
+            listOf(it.durationStartAt, it.durationEndAt, it.durationStatus, it.durationIncompleteReason)
+        })
+    }
+
     // Catches omitted definition upserts, lossy scalar mapping, and writes to history/other families.
     @Test
     fun writesRecordAndTargetFieldsWithoutTouchingAnyOtherFamily() {
@@ -228,6 +339,13 @@ class RoomLocalPersistenceTest {
                     val rows = arguments!![0] as List<TargetEntity>
                     val targets = committed.targets.associateBy { it.targetId } + rows.associateBy { it.targetId }
                     committed = committed.copy(targets = targets.values.toList())
+                    return@proxyWithArguments null
+                }
+                "upsertEvents" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<EventEntity>
+                    val events = committed.events.associateBy { it.eventId } + rows.associateBy { it.eventId }
+                    committed = committed.copy(events = events.values.sortedWith(compareBy({ it.occurredAt }, { it.sequence })))
                     return@proxyWithArguments null
                 }
             }

@@ -60,6 +60,17 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         if (rows.targets.isNotEmpty()) dao.upsertTargets(rows.targets)
     }
 
+    /**
+     * Event-only upsert phase for T027's compare/write transaction, after Record, Target,
+     * and State Group parents exist. Validate the complete aggregate before writes and
+     * retain the supplied historical snapshots and typed payloads through the canonical
+     * mapper. Omitted Events, lifecycle transitions, and metadata belong to other phases.
+     */
+    internal fun writeEvents(state: DomainState, dao: PersistenceWriteDao) {
+        val rows = PersistenceMapper.toRows(state)
+        if (rows.events.isNotEmpty()) dao.upsertEvents(rows.events)
+    }
+
     // The complete atomic write boundary belongs to T027.
     override fun commit(operation: CommitOperation): Boolean =
         throw UnsupportedOperationException("Atomic commits are not implemented")
