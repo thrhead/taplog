@@ -13,3 +13,9 @@ Verification:
 
 - `:data:testDebugUnitTest --tests io.github.thrhead.taplog.data.persistence.PersistenceMapperTest` — BUILD SUCCESSFUL
 - `:data:testDebugUnitTest` — BUILD SUCCESSFUL
+
+## Round 1 review fixes
+
+Added duplicate/reused sequence rejection and explicit preservation assertions for valid sequence/revision values, plus State payload group/generation mismatch rejection and zero/negative persisted Counter quantity rejection. Cross-commit CAS remains out of scope.
+
+The monotonic assertion was intentionally made incorrect once and failed at the expected assertion before being restored. Focused mapper tests and the complete data JVM suite both pass after the fixes.

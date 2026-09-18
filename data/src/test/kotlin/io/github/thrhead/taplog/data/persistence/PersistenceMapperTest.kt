@@ -94,7 +94,15 @@ class PersistenceMapperTest {
         val state = DomainState(records = records, events = events, stateGroups = mapOf(group to StateGroup(group, "Group")),
             stateGenerations = mapOf(StateScope(group, null) to DatasetGeneration(3)), nextSequence = Sequence(5))
 
-        assertEquals(state, PersistenceMapper.fromRows(PersistenceMapper.toRows(state)))
+        val rows = PersistenceMapper.toRows(state)
+        assertEquals(state, PersistenceMapper.fromRows(rows))
+        listOf("0", "-1").forEach { quantity ->
+            assertThrows(MappingFailure::class.java) {
+                PersistenceMapper.fromRows(rows.copy(events = rows.events.map {
+                    if (it.behavior == Behavior.COUNTER.name) it.copy(counterQuantity = quantity) else it
+                }))
+            }
+        }
     }
 
     @Test
@@ -143,6 +151,16 @@ class PersistenceMapperTest {
         assertThrows(MappingFailure::class.java) {
             PersistenceMapper.fromRows(rows.copy(events = rows.events.map { it.copy(targetScopeKey = "no-target") }))
         }
+        assertThrows(MappingFailure::class.java) {
+            PersistenceMapper.fromRows(rows.copy(events = rows.events.map {
+                it.copy(stateGroupId = "other-group")
+            }))
+        }
+        assertThrows(MappingFailure::class.java) {
+            PersistenceMapper.fromRows(rows.copy(events = rows.events.map {
+                it.copy(stateGeneration = 5)
+            }))
+        }
     }
 
     @Test
@@ -154,9 +172,17 @@ class PersistenceMapperTest {
         val state = DomainState(records = mapOf(record.id to record), events = listOf(event), nextSequence = Sequence(2))
         val rows = PersistenceMapper.toRows(state)
 
-        assertEquals(state, PersistenceMapper.fromRows(rows))
+        val restored = PersistenceMapper.fromRows(rows)
+        assertEquals(state, restored)
+        assertEquals(0L, restored.records.getValue(record.id).revision.value)
+        assertEquals(0L, restored.events.single().revision.value)
+        assertEquals(1L, restored.events.single().sequence.value)
+        assertEquals(2L, restored.nextSequence.value)
         assertThrows(MappingFailure::class.java) {
             PersistenceMapper.fromRows(rows.copy(events = rows.events.map { it.copy(sequence = 2) }))
+        }
+        assertThrows(MappingFailure::class.java) {
+            PersistenceMapper.fromRows(rows.copy(events = rows.events + rows.events.single().copy(eventId = "duplicate")))
         }
         assertThrows(MappingFailure::class.java) {
             PersistenceMapper.fromRows(rows.copy(records = rows.records.map { it.copy(revision = -1) }))
