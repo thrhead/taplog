@@ -19,3 +19,7 @@ Verification:
 Added duplicate/reused sequence rejection and explicit preservation assertions for valid sequence/revision values, plus State payload group/generation mismatch rejection and zero/negative persisted Counter quantity rejection. Cross-commit CAS remains out of scope.
 
 The monotonic assertion was intentionally made incorrect once and failed at the expected assertion before being restored. Focused mapper tests and the complete data JVM suite both pass after the fixes.
+
+## Round 2 review fix
+
+Added a valid second State Group to the State mapper fixture. The mismatch mutation now points the persisted State payload at that existing group while the owning Record remains attached to the original group, proving payload/Record group disagreement rather than only missing-group rejection.

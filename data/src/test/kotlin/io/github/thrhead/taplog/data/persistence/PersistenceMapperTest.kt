@@ -137,7 +137,10 @@ class PersistenceMapperTest {
         val state = DomainState(
             records = mapOf(record.id to record),
             targets = mapOf(target to Target(target, "Target", null)),
-            stateGroups = mapOf(group to StateGroup(group, "Group")),
+            stateGroups = mapOf(
+                group to StateGroup(group, "Group"),
+                StateGroupId("other-group") to StateGroup(StateGroupId("other-group"), "Other Group"),
+            ),
             events = listOf(Event(EventId("state-event"), record.id, target, Behavior.STATE,
                 EpochMillis(1), EpochMillis(1), EpochMillis(1), Sequence(1), Source.APP, Revision(2),
                 EventSnapshot("State", null, "Target", null, Behavior.STATE, null),
