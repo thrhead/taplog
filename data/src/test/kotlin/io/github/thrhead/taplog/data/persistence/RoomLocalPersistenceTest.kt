@@ -15,6 +15,86 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches omitted definition upserts, lossy scalar mapping, and writes to history/other families.
+    @Test
+    fun writesRecordAndTargetFieldsWithoutTouchingAnyOtherFamily() {
+        val before = aggregate()
+        val expected = before.copy(
+            records = before.records.mapValues { (_, record) -> record.copy(
+                name = "updated ${record.id.value}", icon = "updated icon", lifecycle = Lifecycle.ARCHIVED,
+                revision = Revision(42),
+            ) } + (RecordId("new") to Record(RecordId("new"), "new counter", null, Behavior.COUNTER,
+                unit = UnitName("cups"), defaultQuantity = Quantity.exact("2.5"), revision = Revision(9))),
+            targets = before.targets.mapValues { (_, target) -> target.copy(
+                name = "updated target", icon = "target icon", lifecycle = Lifecycle.ARCHIVED, revision = Revision(43),
+            ) } + (TargetId("new-target") to Target(TargetId("new-target"), "new target", null, revision = Revision(10))),
+        )
+        val database = SnapshotDatabase(PersistenceMapper.toRows(before))
+        val persistence = RoomLocalPersistence(database)
+
+        val input = expected.copy(records = expected.records + (RecordId("new") to
+            expected.records.getValue(RecordId("new")).copy(defaultQuantity = Quantity.exact("2.500"))))
+        persistence.writeRecordsAndTargets(input, database.persistenceDao())
+
+        assertEquals(expected, persistence.read())
+        assertEquals("2.5", database.committed.records.single { it.recordId == "new" }.defaultQuantity)
+        assertEquals("historical counter", persistence.read().events[1].snapshot.recordName)
+        assertEquals(PersistenceMapper.toRows(before).events, database.committed.events)
+    }
+
+    // Catches normalization of nullable fields or recomputation of hasEvents from current history.
+    @Test
+    fun retainsNullableFieldsAndHasEventsEvenWhenHistoryHasBeenRemoved() {
+        val records = listOf(
+            Record(RecordId("moment"), "moment", null, Behavior.MOMENT, defaultQuantity = null, hasEvents = true),
+            Record(RecordId("counter"), "counter", null, Behavior.COUNTER, defaultQuantity = Quantity.exact("0.125")),
+        ).associateBy { it.id }
+        val expected = DomainState(records = records, targets = mapOf(TargetId("target") to Target(TargetId("target"), "target", null)))
+        val database = SnapshotDatabase(PersistenceMapper.toRows(DomainState()))
+        val persistence = RoomLocalPersistence(database)
+
+        persistence.writeRecordsAndTargets(expected, database.persistenceDao())
+
+        assertEquals(expected, persistence.read())
+        assertEquals(null, database.committed.records.single { it.recordId == "moment" }.defaultQuantity)
+        assertEquals(null, database.committed.records.single { it.recordId == "counter" }.unit)
+    }
+
+    // Catches applying an aggregate deletion during this upsert-only phase.
+    @Test
+    fun missingDefinitionsInInputDoNotDeleteExistingRows() {
+        val before = aggregate()
+        val rows = PersistenceMapper.toRows(before)
+        val database = SnapshotDatabase(rows)
+
+        RoomLocalPersistence(database).writeRecordsAndTargets(DomainState(), database.persistenceDao())
+
+        assertEquals(rows, database.committed)
+    }
+
+    // Catches a DAO write before complete mapper validation, including bad unrelated rows.
+    @Test
+    fun invalidAggregateFailsMappingBeforeAnyDefinitionIsWritten() {
+        val before = aggregate()
+        val record = before.records.getValue(RecordId("counter"))
+        val invalid = listOf(
+            before.copy(records = before.records + (record.id to record.copy(defaultQuantity = null))),
+            before.copy(records = before.records + (record.id to record.copy(unit = UnitName(" ")))),
+            before.copy(records = before.records + (record.id to record.copy(revision = Revision(-1)))),
+            before.copy(records = before.records + (RecordId("wrong-key") to record)),
+            before.copy(targets = before.targets.mapValues { (_, target) -> target.copy(revision = Revision(-1)) }),
+            before.copy(targets = mapOf(TargetId("wrong-key") to before.targets.values.single())),
+            before.copy(nextSequence = Sequence(0)),
+        )
+        invalid.forEach { state ->
+            val database = SnapshotDatabase(PersistenceMapper.toRows(before))
+            assertThrows(MappingFailure::class.java) {
+                RoomLocalPersistence(database).writeRecordsAndTargets(state, database.persistenceDao())
+            }
+            assertEquals(PersistenceMapper.toRows(before), database.committed)
+        }
+    }
+
     @Test
     fun reconstructsEveryFamilyWithoutReplacingHistoricalSnapshotsOrScopes() {
         val expected = aggregate()
@@ -134,7 +214,23 @@ class RoomLocalPersistenceTest {
                 proxy(SupportSQLiteDatabase::class.java) { error("No direct SQLite access expected") }
             }
 
-        override fun persistenceDao(): PersistenceDao = proxy(PersistenceDao::class.java) { method ->
+        override fun persistenceDao(): PersistenceDao = proxyWithArguments(PersistenceDao::class.java) { method, arguments ->
+            when (method) {
+                "upsertRecords" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<RecordEntity>
+                    val records = committed.records.associateBy { it.recordId } + rows.associateBy { it.recordId }
+                    committed = committed.copy(records = records.values.toList())
+                    return@proxyWithArguments null
+                }
+                "upsertTargets" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<TargetEntity>
+                    val targets = committed.targets.associateBy { it.targetId } + rows.associateBy { it.targetId }
+                    committed = committed.copy(targets = targets.values.toList())
+                    return@proxyWithArguments null
+                }
+            }
             queryFailure?.let { throw it }
             val rows = snapshot ?: error("Query outside complete aggregate snapshot")
             val result = when (method) {
@@ -159,6 +255,10 @@ class RoomLocalPersistenceTest {
 
         private fun <T : Any> proxy(type: Class<T>, block: (String) -> Any?): T = requireNotNull(type.cast(
             Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { _, method, _ -> block(method.name) },
+        ))
+
+        private fun <T : Any> proxyWithArguments(type: Class<T>, block: (String, Array<out Any?>?) -> Any?): T = requireNotNull(type.cast(
+            Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { _, method, arguments -> block(method.name, arguments) },
         ))
     }
 

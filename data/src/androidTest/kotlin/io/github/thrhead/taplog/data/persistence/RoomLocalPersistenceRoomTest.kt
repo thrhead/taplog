@@ -17,6 +17,59 @@ class RoomLocalPersistenceRoomTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
+    fun recordAndTargetUpdatesSurviveReopenWithOriginalHistory() = withDatabaseName { name ->
+        val before = aggregate()
+        val expected = before.copy(
+            records = before.records.mapValues { (_, record) -> record.copy(
+                name = "edited ${record.id.value}", icon = "edited icon", revision = Revision(20),
+            ) } + (RecordId("new-counter") to Record(RecordId("new-counter"), "new counter", null,
+                Behavior.COUNTER, unit = UnitName("cups"), defaultQuantity = Quantity.exact("2.5"))),
+            targets = before.targets.mapValues { (_, target) -> target.copy(
+                name = "edited target", icon = "edited target icon", revision = Revision(21),
+            ) } + (TargetId("new-target") to Target(TargetId("new-target"), "new target", null,
+                lifecycle = Lifecycle.ARCHIVED, revision = Revision(3))),
+        )
+        withDatabase(name) { database ->
+            seed(database, before)
+            val history = database.persistenceDao().readEvents()
+            database.runInTransaction {
+                val input = expected.copy(records = expected.records + (RecordId("new-counter") to
+                    expected.records.getValue(RecordId("new-counter")).copy(defaultQuantity = Quantity.exact("2.500"))))
+                RoomLocalPersistence(database).writeRecordsAndTargets(input, database.persistenceDao())
+            }
+            assertEquals(expected, RoomLocalPersistence(database).read())
+            assertEquals(history, database.persistenceDao().readEvents())
+            assertEquals("2.5", database.persistenceDao().readRecord("new-counter")!!.defaultQuantity)
+        }
+        withDatabase(name) { database ->
+            val actual = RoomLocalPersistence(database).read()
+            assertEquals(expected, actual)
+            assertEquals("old counter", actual.events[1].snapshot.recordName)
+            assertEquals(UnitName("old unit"), (actual.events[1].payload as EventPayload.Counter).unit)
+        }
+    }
+
+    @Test
+    fun callerTransactionRollsBackRecordAndTargetWritePhase() = withDatabaseName { name ->
+        val before = aggregate()
+        val edited = before.copy(
+            records = before.records.mapValues { (_, record) -> record.copy(name = "partial record", revision = Revision(20)) },
+            targets = before.targets.mapValues { (_, target) -> target.copy(name = "partial target", revision = Revision(21)) },
+        )
+        withDatabase(name) { database ->
+            seed(database, before)
+            assertThrows(IllegalStateException::class.java) {
+                database.runInTransaction {
+                    RoomLocalPersistence(database).writeRecordsAndTargets(edited, database.persistenceDao())
+                    error("Abort after both definition families")
+                }
+            }
+            assertEquals(before, RoomLocalPersistence(database).read())
+        }
+        withDatabase(name) { assertEquals(before, RoomLocalPersistence(it).read()) }
+    }
+
+    @Test
     fun completeAggregateAndEqualTimeChronologySurviveReopen() = withDatabaseName { name ->
         val expected = aggregate()
         withDatabase(name) { database ->

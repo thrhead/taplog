@@ -48,7 +48,19 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         return PersistenceMapper.fromRows(rows)
     }
 
-    // T011 implements reads only. Atomic writes belong to the subsequent commit task.
+    /**
+     * Internal upsert-only phase, not a complete [LocalPersistence.commit]. T027 must call
+     * this inside its compare/write transaction, after required State Group parents exist.
+     * Validate the complete aggregate before any write; leave history and all other row
+     * families to their own phases, including deletion and lifecycle effects.
+     */
+    internal fun writeRecordsAndTargets(state: DomainState, dao: PersistenceWriteDao) {
+        val rows = PersistenceMapper.toRows(state)
+        if (rows.records.isNotEmpty()) dao.upsertRecords(rows.records)
+        if (rows.targets.isNotEmpty()) dao.upsertTargets(rows.targets)
+    }
+
+    // The complete atomic write boundary belongs to T027.
     override fun commit(operation: CommitOperation): Boolean =
         throw UnsupportedOperationException("Atomic commits are not implemented")
 }
