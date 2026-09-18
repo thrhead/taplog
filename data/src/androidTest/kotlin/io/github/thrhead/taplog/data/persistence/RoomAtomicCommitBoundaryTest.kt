@@ -197,7 +197,7 @@ class RoomAtomicCommitBoundaryTest {
     fun canonicalEventRowsContainOnlyTheirTypedPayloadColumns() = withDatabase { database ->
         seed(database, aggregate())
         val dao = database.persistenceDao()
-        assertEquals(20, dao.readEvents().size)
+        assertEquals(22, dao.readEvents().size)
         val cases = mapOf(
             "moment-none" to listOf(null, null, null, null, null, null, null, null),
             "counter" to listOf("1.25", "old unit", null, null, null, null, null, null),
@@ -261,34 +261,63 @@ class RoomAtomicCommitBoundaryTest {
 
     private fun assertIndexConflicts(database: TapLogDatabase) {
         val dao = database.persistenceDao()
-        val moment = dao.readEvent("moment-none")!!
-        assertThrows(SQLiteConstraintException::class.java) { dao.upsertEvents(listOf(moment.copy(eventId = "duplicate-sequence"))) }
+        assertThrows(SQLiteConstraintException::class.java) {
+            insertEventCopy(database, "moment-none", "duplicate-sequence", 2)
+        }
         listOf("duration-none", "duration-a").forEach { id ->
             assertThrows(SQLiteConstraintException::class.java) {
-                dao.upsertEvents(listOf(dao.readEvent(id)!!.copy(eventId = "duplicate-open", sequence = 90)))
+                insertEventCopy(database, id, "duplicate-open", 90)
             }
         }
-        assertEquals(20, dao.readEvents().size)
+        assertEquals(22, dao.readEvents().size)
+        assertNull(dao.readEvent("duplicate-sequence"))
+        assertNull(dao.readEvent("duplicate-open"))
+    }
+
+    private fun insertEventCopy(database: TapLogDatabase, sourceId: String, newId: String, sequence: Long) {
+        // @Upsert may catch a unique violation and perform a zero-row update for a new ID.
+        // Raw INSERT directly observes the SQLite index contract instead of that fallback.
+        database.openHelper.writableDatabase.execSQL(
+            """
+            INSERT INTO events (
+                eventId,recordId,targetId,targetScopeKey,behavior,occurredAt,createdAt,updatedAt,
+                sequence,source,revision,snapshotRecordName,snapshotRecordIcon,snapshotTargetName,
+                snapshotTargetIcon,snapshotBehavior,snapshotUnit,counterQuantity,counterUnit,
+                durationStartAt,durationEndAt,durationStatus,durationIncompleteReason,stateGroupId,stateGeneration
+            ) SELECT ?,recordId,targetId,targetScopeKey,behavior,occurredAt,createdAt,updatedAt,
+                ?,source,revision,snapshotRecordName,snapshotRecordIcon,snapshotTargetName,
+                snapshotTargetIcon,snapshotBehavior,snapshotUnit,counterQuantity,counterUnit,
+                durationStartAt,durationEndAt,durationStatus,durationIncompleteReason,stateGroupId,stateGeneration
+            FROM events WHERE eventId = ?
+            """.trimIndent(),
+            arrayOf<Any>(newId, sequence, sourceId),
+        )
     }
 
     private fun assertChronology(database: TapLogDatabase) {
         val dao = database.persistenceDao()
-        assertEquals(listOf("moment-a-early", "moment-a-later", "moment-b", "moment-none"), dao.readRecordEvents("moment").map { it.eventId })
+        assertEquals(listOf("moment-a-earlier-time", "moment-b", "moment-a-tie", "moment-none", "moment-a-later-time"),
+            dao.readRecordEvents("moment").map { it.eventId })
         assertEquals(listOf("moment-none"), dao.readScopeEvents("moment", "no-target").map { it.eventId })
-        assertEquals(listOf("moment-a-early", "moment-a-later"), dao.readScopeEvents("moment", "target:a").map { it.eventId })
+        // Sequences 4 and 21 share time 100; lower sequence 3 has later time 102.
+        assertEquals(listOf("moment-a-earlier-time", "moment-a-tie", "moment-a-later-time"),
+            dao.readScopeEvents("moment", "target:a").map { it.eventId })
         // A literal Target ID equal to the sentinel remains distinct from nullable no-Target.
         assertEquals(listOf("moment-b"), dao.readScopeEvents("moment", "target:no-target").map { it.eventId })
         assertEquals(listOf("other-moment"), dao.readRecordEvents("other-moment").map { it.eventId })
         assertTrue(dao.readScopeEvents("moment", "target:missing").isEmpty())
         assertTrue(dao.readRecordEvents("missing").isEmpty())
-        assertEquals(listOf(1L, 3L, 4L, 5L, 6L, 2L, 7L, 8L, 9L, 10L, 11L, 12L, 13L, 14L,
-            15L, 16L, 17L, 18L, 19L, 20L), dao.readEvents().map { it.sequence })
+        assertEquals(listOf(1L, 4L, 5L, 6L, 21L, 2L, 3L, 7L, 8L, 9L, 10L, 11L, 12L, 13L, 14L,
+            22L, 15L, 16L, 17L, 18L, 19L, 20L), dao.readEvents().map { it.sequence })
     }
 
     private fun assertCurrentState(database: TapLogDatabase) {
         val dao = database.persistenceDao()
         assertEquals("state-none-active", dao.readCurrentState("group", "no-target")!!.eventId)
         assertEquals("state-a-latest", dao.readCurrentState("group", "target:a")!!.eventId)
+        // Active sequence 22 is at time 309, earlier than sequences 15 and 16 at time 310.
+        assertEquals(listOf("state-a-old", "state-a-earlier-time", "state-a-early", "state-a-latest", "state-a-stale-late"),
+            dao.readScopeEvents("state", "target:a").map { it.eventId })
         assertEquals("state-b", dao.readCurrentState("group", "target:no-target")!!.eventId)
         assertEquals("state-other", dao.readCurrentState("other-group", "target:a")!!.eventId)
         assertNull(dao.readCurrentState("group", "target:missing"))
@@ -331,11 +360,12 @@ class RoomAtomicCommitBoundaryTest {
         ).associateBy { it.id }
         val events = listOf(
             event("counter", "counter", 1, -1000, EventPayload.Counter(Quantity.exact("1.25")!!, UnitName("old unit")), a),
-            event("moment-a-early", "moment", 3, 100, EventPayload.Moment, a),
-            event("moment-a-later", "moment", 4, 100, EventPayload.Moment, a),
+            event("moment-a-earlier-time", "moment", 4, 100, EventPayload.Moment, a),
             event("moment-b", "moment", 5, 100, EventPayload.Moment, b),
             event("other-moment", "other-moment", 6, 100, EventPayload.Moment),
+            event("moment-a-tie", "moment", 21, 100, EventPayload.Moment, a),
             event("moment-none", "moment", 2, 101, EventPayload.Moment),
+            event("moment-a-later-time", "moment", 3, 102, EventPayload.Moment, a),
             event("duration-none", "duration", 7, 200, EventPayload.Duration(EpochMillis(200))),
             event("duration-a", "duration", 8, 200, EventPayload.Duration(EpochMillis(200)), a),
             event("duration-b", "duration", 9, 200, EventPayload.Duration(EpochMillis(190), EpochMillis(200), DurationStatus.COMPLETED), b),
@@ -344,6 +374,7 @@ class RoomAtomicCommitBoundaryTest {
             event("duration-incomplete", "duration", 12, 210, EventPayload.Duration(EpochMillis(205), EpochMillis(210), DurationStatus.INCOMPLETE, "interrupted"), a),
             event("state-none-old", "state", 13, 300, EventPayload.State(group, DatasetGeneration(1))),
             event("state-a-old", "state", 14, 300, EventPayload.State(group, DatasetGeneration(1)), a),
+            event("state-a-earlier-time", "state", 22, 309, EventPayload.State(group, DatasetGeneration(2)), a),
             event("state-a-early", "state", 15, 310, EventPayload.State(group, DatasetGeneration(2)), a),
             event("state-a-latest", "state", 16, 310, EventPayload.State(group, DatasetGeneration(2)), a),
             event("state-b", "state", 17, 310, EventPayload.State(group, DatasetGeneration(3)), b),
