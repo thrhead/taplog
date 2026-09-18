@@ -113,6 +113,45 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         if (rows.recordTargets.isNotEmpty()) dao.upsertRecordTargets(rows.recordTargets)
     }
 
+    /**
+     * Binding/child-metadata upsert phase for the caller-owned T027 transaction, after
+     * definition parents exist. Persist core-supplied orphaning and historical display
+     * values; never derive them from live definitions. Validate supplied and stored
+     * aggregates before writes, including unsupported reset/Undo context. Binding scope
+     * is immutable, and changes require a higher revision. Omitted rows remain retained;
+     * receipt invalidation/removal and other lifecycle phases have separate ownership.
+     */
+    internal fun writeBindings(state: DomainState, dao: PersistenceDao) {
+        val rows = PersistenceMapper.toRows(state)
+        val storedRows = PersistenceRows(
+            records = dao.readRecords(), targets = dao.readTargets(), recordTargets = dao.readRecordTargets(),
+            stateGroups = dao.readStateGroups(), events = dao.readEvents(), stateScopes = dao.readStateScopes(),
+            bindings = dao.readBindings(), bindingUndoInvalidations = dao.readBindingUndoInvalidations(),
+            undoReceipts = dao.readUndoReceipts(), metadata = dao.readMetadataRows(),
+        )
+        PersistenceMapper.fromRows(storedRows)
+        val recordIds = storedRows.records.map { it.recordId }.toSet()
+        val targetIds = storedRows.targets.map { it.targetId }.toSet()
+        val storedBindings = storedRows.bindings.associateBy { it.bindingId }
+        val storedInvalidations = storedRows.bindingUndoInvalidations.groupBy { it.bindingId }
+        val suppliedInvalidations = rows.bindingUndoInvalidations.groupBy { it.bindingId }
+        rows.bindings.forEach { row ->
+            PersistenceMapper.requireInvariant(row.recordId in recordIds, "Missing stored referenced Record")
+            PersistenceMapper.requireInvariant(row.targetId == null || row.targetId in targetIds, "Missing stored referenced Target")
+            storedBindings[row.bindingId]?.let { stored ->
+                PersistenceMapper.requireInvariant(row.recordId == stored.recordId && row.targetId == stored.targetId,
+                    "Binding scope must not change")
+                PersistenceMapper.requireInvariant(row.revision >= stored.revision, "Binding revision must not decrease")
+                val sameInvalidations = suppliedInvalidations[row.bindingId].orEmpty().associate { it.receiptId to it.reason } ==
+                    storedInvalidations[row.bindingId].orEmpty().associate { it.receiptId to it.reason }
+                PersistenceMapper.requireInvariant(row.revision > stored.revision ||
+                    (row == stored && sameInvalidations), "Binding change requires a higher revision")
+            }
+        }
+        if (rows.bindings.isNotEmpty()) dao.upsertBindings(rows.bindings)
+        if (rows.bindingUndoInvalidations.isNotEmpty()) dao.upsertBindingUndoInvalidations(rows.bindingUndoInvalidations)
+    }
+
     // The complete atomic write boundary belongs to T027.
     override fun commit(operation: CommitOperation): Boolean =
         throw UnsupportedOperationException("Atomic commits are not implemented")

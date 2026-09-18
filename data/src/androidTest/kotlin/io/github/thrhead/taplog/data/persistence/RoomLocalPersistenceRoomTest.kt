@@ -16,6 +16,59 @@ import java.util.UUID
 class RoomLocalPersistenceRoomTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    // Catches lost snapshots/child rows across SQLite reopen and binding retargeting.
+    @Test
+    fun stagedBindingOrphaningRetainsSnapshotAndInvalidationAcrossReopen() = withDatabaseName { name ->
+        val expected = aggregate()
+        val binding = expected.bindings.values.single()
+        val active = binding.copy(status = BindingStatus.ACTIVE, revision = Revision(4), undoInvalidations = emptyList())
+        withDatabase(name) { database ->
+            seed(database, expected.copy(bindings = mapOf(active.bindingId to active)))
+            val dao = database.persistenceDao()
+            val definitions = dao.readRecords()
+            val history = dao.readEvents()
+            database.runInTransaction { RoomLocalPersistence(database).writeBindings(expected, dao) }
+            assertEquals(definitions, dao.readRecords())
+            assertEquals(history, dao.readEvents())
+            assertEquals(BindingEntity("binding", "counter", "target", "ORPHANED", 5, "old binding", null, "old target", null), dao.readBinding("binding"))
+            assertEquals(listOf(BindingUndoInvalidationEntity("binding", "removed", "STALE_REVISION")), dao.readBindingUndoInvalidations())
+        }
+        withDatabase(name) { database ->
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(expected, persistence.read())
+            database.runInTransaction {
+                persistence.writeBindings(expected, database.persistenceDao())
+                persistence.writeBindings(DomainState(), database.persistenceDao())
+            }
+            assertThrows(MappingFailure::class.java) {
+                database.runInTransaction {
+                    persistence.writeBindings(expected.copy(bindings = mapOf(binding.bindingId to
+                        binding.copy(targetId = null, revision = Revision(6)))), database.persistenceDao())
+                }
+            }
+            assertEquals(expected, persistence.read())
+        }
+    }
+
+    // Catches transaction ownership moving into a partial binding/child-metadata phase.
+    @Test
+    fun callerTransactionRollsBackBindingAndInvalidationUpserts() = withDatabaseName { name ->
+        val expected = aggregate()
+        val active = expected.copy(bindings = expected.bindings.mapValues { (_, binding) ->
+            binding.copy(status = BindingStatus.ACTIVE, revision = Revision(4), undoInvalidations = emptyList()) })
+        withDatabase(name) { database ->
+            seed(database, active)
+            assertThrows(IllegalStateException::class.java) {
+                database.runInTransaction {
+                    RoomLocalPersistence(database).writeBindings(expected, database.persistenceDao())
+                    error("Abort after binding phase")
+                }
+            }
+            assertEquals(active, RoomLocalPersistence(database).read())
+        }
+        withDatabase(name) { assertEquals(active, RoomLocalPersistence(it).read()) }
+    }
+
     // Catches unlink cascades and scope broadening across normal Room close/reopen.
     @Test
     fun stagedRelationshipUnlinkRetainsDefinitionsAndExactHistoricalScopesAcrossReopen() = withDatabaseName { name ->

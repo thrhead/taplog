@@ -15,6 +15,112 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches lost lifecycle/snapshot/child metadata and accidental writes to unrelated families.
+    @Test
+    fun bindingWritesPersistSuppliedOrphaningAndHistoricalDisplayWithoutOtherMutations() {
+        val state = aggregate()
+        val binding = state.bindings.values.single()
+        val active = binding.copy(status = BindingStatus.ACTIVE, revision = Revision(4), undoInvalidations = emptyList())
+        val unrelated = active.copy(bindingId = BindingId("other"), recordId = RecordId("moment"), targetId = null,
+            lastKnownDisplay = DisplaySnapshot("historic moment", "old icon", null, null))
+        val before = state.copy(bindings = mapOf(active.bindingId to active, unrelated.bindingId to unrelated))
+        val original = PersistenceMapper.toRows(before)
+        val database = SnapshotDatabase(original)
+        val supplied = state.copy(bindings = mapOf(binding.bindingId to binding), records = state.records.mapValues { (_, record) ->
+            record.copy(name = "edited live definition") })
+        RoomLocalPersistence(database).writeBindings(supplied, database.persistenceDao())
+        assertEquals(listOf(BindingEntity("binding", "counter", "target", "ORPHANED", 5, "old binding", null, "old target", null),
+            BindingEntity("other", "moment", null, "ACTIVE", 4, "historic moment", "old icon", null, null)), database.committed.bindings)
+        assertEquals(listOf(BindingUndoInvalidationEntity("binding", "removed", "STALE_REVISION")), database.committed.bindingUndoInvalidations)
+        assertEquals(original, database.committed.copy(bindings = original.bindings, bindingUndoInvalidations = original.bindingUndoInvalidations))
+        RoomLocalPersistence(database).writeBindings(DomainState(), database.persistenceDao())
+        assertEquals(before.copy(bindings = before.bindings + (binding.bindingId to binding)), RoomLocalPersistence(database).read())
+    }
+
+    // Catches failure to create active bindings, including the exact no-Target scope.
+    @Test
+    fun bindingWritesCreateActiveAndOrphanedRowsWithCanonicalSnapshots() {
+        val state = aggregate()
+        val binding = state.bindings.values.single()
+        val active = binding.copy(bindingId = BindingId("new"), targetId = null, status = BindingStatus.ACTIVE,
+            revision = Revision(0), lastKnownDisplay = DisplaySnapshot("historic counter", "old", null, null), undoInvalidations = emptyList())
+        val expected = state.copy(bindings = state.bindings + (active.bindingId to active))
+        val database = SnapshotDatabase(PersistenceMapper.toRows(state.copy(bindings = emptyMap())))
+        RoomLocalPersistence(database).writeBindings(expected, database.persistenceDao())
+        assertEquals(expected, RoomLocalPersistence(database).read())
+        assertEquals(BindingEntity("new", "counter", null, "ACTIVE", 0, "historic counter", "old", null, null),
+            database.committed.bindings.single { it.bindingId == "new" })
+    }
+
+    // Catches stale updates and identity retargeting before any valid earlier binding can be written.
+    @Test
+    fun bindingRevisionGuardsPermitReplayAndAdvanceButRejectStaleChangesAndRetargeting() {
+        val state = aggregate()
+        val binding = state.bindings.values.single()
+        val database = SnapshotDatabase(PersistenceMapper.toRows(state))
+        RoomLocalPersistence(database).writeBindings(state, database.persistenceDao())
+        val advanced = binding.copy(revision = Revision(8), lastKnownDisplay = DisplaySnapshot("supplied historical update", null, "old target", null))
+        val updated = state.copy(bindings = mapOf(binding.bindingId to advanced))
+        RoomLocalPersistence(database).writeBindings(updated, database.persistenceDao())
+        assertEquals(advanced, RoomLocalPersistence(database).read().bindings.getValue(binding.bindingId))
+        val before = database.committed
+        val first = binding.copy(bindingId = BindingId("first"), revision = Revision(0))
+        listOf(advanced.copy(revision = Revision(7)), advanced.copy(status = BindingStatus.ACTIVE),
+            advanced.copy(lastKnownDisplay = binding.lastKnownDisplay),
+            advanced.copy(undoInvalidations = advanced.undoInvalidations + UndoInvalidation(ReceiptId("another"), ResultReason.STALE_REVISION)),
+            advanced.copy(recordId = RecordId("moment"), revision = Revision(9)),
+            advanced.copy(targetId = null, revision = Revision(9))).forEach { invalid ->
+            assertThrows(MappingFailure::class.java) {
+                RoomLocalPersistence(database).writeBindings(updated.copy(bindings = linkedMapOf(first.bindingId to first, invalid.bindingId to invalid)), database.persistenceDao())
+            }
+            assertEquals(before, database.committed)
+        }
+    }
+
+    // Catches invalid supplied aggregates and missing stored parents before a binding/child write.
+    @Test
+    fun invalidBindingAggregatesAndStoredParentsRejectWithoutChanges() {
+        val state = aggregate()
+        val binding = state.bindings.values.single()
+        val original = PersistenceMapper.toRows(state)
+        listOf(state.copy(records = emptyMap()), state.copy(targets = emptyMap()),
+            state.copy(bindings = mapOf(BindingId("wrong") to binding)),
+            state.copy(bindings = mapOf(binding.bindingId to binding.copy(revision = Revision(-1)))),
+            state.copy(bindings = mapOf(binding.bindingId to binding.copy(undoInvalidations = binding.undoInvalidations + binding.undoInvalidations))),
+            state.copy(generation = DatasetGeneration(-1))).forEach { invalid ->
+            val database = SnapshotDatabase(original)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeBindings(invalid, database.persistenceDao()) }
+            assertEquals(original, database.committed)
+        }
+        listOf(original.copy(records = emptyList()), original.copy(targets = emptyList()),
+            original.copy(bindings = original.bindings.map { it.copy(revision = -1) }),
+            original.copy(bindings = original.bindings.map { it.copy(status = "UNKNOWN") })).forEach { stored ->
+            val database = SnapshotDatabase(stored)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeBindings(state, database.persistenceDao()) }
+            assertEquals(stored, database.committed)
+        }
+    }
+
+    // Catches clearing or ignoring unsupported Dataset/reset/Undo adapter context on write.
+    @Test
+    fun unsupportedStoredContextRejectsBindingsBeforeAnyUpsert() {
+        val state = aggregate()
+        val original = PersistenceMapper.toRows(state)
+        val invalidMetadata = listOf(emptyList(), listOf(DatasetMetadataEntity(1, 7, 20, 2)),
+            listOf(DatasetMetadataEntity(2, 7, 20, 1)), listOf(DatasetMetadataEntity(1, -1, 20, 1)),
+            listOf(DatasetMetadataEntity(1, 7, 0, 1)), original.metadata + DatasetMetadataEntity(2, 7, 20, 1))
+        val invalidRows = invalidMetadata.map { original.copy(metadata = it) } + listOf(
+            original.copy(stateScopes = original.stateScopes.map { it.copy(resetSequence = 9) }),
+            original.copy(stateScopes = original.stateScopes.map { it.copy(resetAt = 100) }),
+            original.copy(undoReceipts = original.undoReceipts.map { it.copy(consumed = true) }),
+            original.copy(bindingUndoInvalidations = original.bindingUndoInvalidations.map { it.copy(reason = "UNKNOWN") }))
+        invalidRows.forEach { stored ->
+            val database = SnapshotDatabase(stored)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeBindings(state, database.persistenceDao()) }
+            assertEquals(stored, database.committed)
+        }
+    }
+
     // Catches scope broadening, identity loss, and accidental mutation of history or definitions.
     @Test
     fun relationshipWritesUnlinkOnlyTheExactPairAndRetainAllOtherFamilies() {
@@ -545,6 +651,28 @@ class RoomLocalPersistenceTest {
 
         override fun persistenceDao(): PersistenceDao = proxyWithArguments(PersistenceDao::class.java) { method, arguments ->
             when (method) {
+                "readRecords" -> if (snapshot == null) return@proxyWithArguments committed.records
+                "readTargets" -> if (snapshot == null) return@proxyWithArguments committed.targets
+                "readRecordTargets" -> if (snapshot == null) return@proxyWithArguments committed.recordTargets
+                "readStateGroups" -> if (snapshot == null) return@proxyWithArguments committed.stateGroups
+                "readEvents" -> if (snapshot == null) return@proxyWithArguments committed.events
+                "readBindings" -> if (snapshot == null) return@proxyWithArguments committed.bindings
+                "readBindingUndoInvalidations" -> if (snapshot == null) return@proxyWithArguments committed.bindingUndoInvalidations
+                "readUndoReceipts" -> if (snapshot == null) return@proxyWithArguments committed.undoReceipts
+                "upsertBindings" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<BindingEntity>
+                    committed = committed.copy(bindings = (committed.bindings.associateBy { it.bindingId } +
+                        rows.associateBy { it.bindingId }).values.toList())
+                    return@proxyWithArguments null
+                }
+                "upsertBindingUndoInvalidations" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<BindingUndoInvalidationEntity>
+                    committed = committed.copy(bindingUndoInvalidations = (committed.bindingUndoInvalidations.associateBy { it.bindingId to it.receiptId } +
+                        rows.associateBy { it.bindingId to it.receiptId }).values.toList())
+                    return@proxyWithArguments null
+                }
                 "readMetadataRows" -> if (snapshot == null) return@proxyWithArguments committed.metadata
                 "readRecord" -> return@proxyWithArguments committed.records.singleOrNull { it.recordId == arguments!![0] }
                 "readTarget" -> return@proxyWithArguments committed.targets.singleOrNull { it.targetId == arguments!![0] }
