@@ -15,6 +15,51 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches null/real Target scope collisions and recovery that reopens or timestamps terminal history.
+    @Test
+    fun durationRecoveryRetainsExactScopesAndTerminalHistoryAfterStagedUpdates() {
+        val before = durationAggregate()
+        val database = SnapshotDatabase(PersistenceMapper.toRows(before.copy(events = emptyList())))
+        RoomLocalPersistence(database).writeEvents(before, database.persistenceDao())
+        assertEquals(before, RoomLocalPersistence(database).read())
+        val rows = database.committed.events.associateBy { it.eventId }
+        assertEquals("no-target", rows.getValue("duration-1").targetScopeKey)
+        assertEquals("target:no-target", rows.getValue("duration-2").targetScopeKey)
+
+        val completed = before.events[0].copy(updatedAt = EpochMillis(900), revision = Revision(4),
+            payload = EventPayload.Duration(EpochMillis(-50), EpochMillis(700), DurationStatus.COMPLETED))
+        val incomplete = before.events[1].copy(updatedAt = EpochMillis(901), revision = Revision(5),
+            payload = EventPayload.Duration(EpochMillis(-50), null, DurationStatus.INCOMPLETE, "target-unlinked"))
+        RoomLocalPersistence(database).writeEvents(before.copy(events = listOf(completed, incomplete)), database.persistenceDao())
+
+        // A fresh repository/database boundary consumes the retained scalar snapshot, not live definitions.
+        val recoveredDatabase = SnapshotDatabase(database.committed)
+        val persistence = RoomLocalPersistence(recoveredDatabase)
+        val expected = before.copy(events = listOf(completed, incomplete) + before.events.drop(2))
+        assertEquals(expected, persistence.read())
+        persistence.writeEvents(expected.copy(events = emptyList()), recoveredDatabase.persistenceDao())
+        assertEquals(expected, persistence.read())
+        assertEquals(listOf("COMPLETED", "INCOMPLETE", "COMPLETED", "INCOMPLETE"),
+            recoveredDatabase.committed.events.map { it.durationStatus })
+        assertEquals(listOf(700L, null, 60L, null), recoveredDatabase.committed.events.map { it.durationEndAt })
+        assertEquals(listOf(null, "target-unlinked", null, "record-archived"),
+            recoveredDatabase.committed.events.map { it.durationIncompleteReason })
+    }
+
+    // Catches omission of aggregate OPEN uniqueness validation before any Event write.
+    @Test
+    fun competingOpenDurationsInEitherExactScopeFailBeforeAnyWrite() {
+        val before = durationAggregate()
+        before.events.take(2).forEach { open ->
+            val database = SnapshotDatabase(PersistenceMapper.toRows(before))
+            val competing = open.copy(id = EventId("competing"), sequence = Sequence(5))
+            assertThrows(MappingFailure::class.java) {
+                RoomLocalPersistence(database).writeEvents(before.copy(events = before.events + competing), database.persistenceDao())
+            }
+            assertEquals(PersistenceMapper.toRows(before), database.committed)
+        }
+    }
+
     // Catches omitted Event upserts, lossy fields, live-definition snapshots, and other-family writes.
     @Test
     fun writesAllEventFieldsAndOnlyTheirTypedPayloadColumns() {
@@ -378,6 +423,24 @@ class RoomLocalPersistenceTest {
         private fun <T : Any> proxyWithArguments(type: Class<T>, block: (String, Array<out Any?>?) -> Any?): T = requireNotNull(type.cast(
             Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { _, method, arguments -> block(method.name, arguments) },
         ))
+    }
+
+    private fun durationAggregate(): DomainState {
+        val record = Record(RecordId("duration"), "current duration", null, Behavior.DURATION, hasEvents = true)
+        val target = Target(TargetId("no-target"), "current target", null)
+        fun event(sequence: Long, targetId: TargetId?, payload: EventPayload.Duration) = Event(
+            EventId("duration-$sequence"), record.id, targetId, Behavior.DURATION, EpochMillis(100),
+            EpochMillis(-100), EpochMillis(200), Sequence(sequence), Source.NFC, Revision(3),
+            EventSnapshot("historic duration", "old", if (targetId == null) null else "historic target", null,
+                Behavior.DURATION, null), payload,
+        )
+        return DomainState(records = mapOf(record.id to record), targets = mapOf(target.id to target),
+            events = listOf(
+                event(1, null, EventPayload.Duration(EpochMillis(-50))),
+                event(2, target.id, EventPayload.Duration(EpochMillis(-50))),
+                event(3, null, EventPayload.Duration(EpochMillis(10), EpochMillis(60), DurationStatus.COMPLETED)),
+                event(4, null, EventPayload.Duration(EpochMillis(20), null, DurationStatus.INCOMPLETE, "record-archived")),
+            ), nextSequence = Sequence(10))
     }
 
     private fun aggregate(): DomainState {

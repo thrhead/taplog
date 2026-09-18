@@ -16,6 +16,82 @@ import java.util.UUID
 class RoomLocalPersistenceRoomTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    // Catches scope-key collisions, index loss on normal identity-hash reopen, and partial staged writes.
+    @Test
+    fun stagedDurationScopesRecoverAndStoredOpenConflictsRollBackAfterReopen() = withDatabaseName { name ->
+        val expected = durationAggregate()
+        withDatabase(name) { database ->
+            seed(database, expected.copy(events = emptyList()))
+            database.runInTransaction {
+                RoomLocalPersistence(database).writeEvents(expected, database.persistenceDao())
+            }
+            assertEquals(expected, RoomLocalPersistence(database).read())
+        }
+        withDatabase(name) { database ->
+            val dao = database.persistenceDao()
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(expected, persistence.read())
+            assertEquals("duration-1", dao.readOpenDuration("duration", "no-target")!!.eventId)
+            assertEquals("duration-2", dao.readOpenDuration("duration", "target:no-target")!!.eventId)
+            expected.events.take(2).forEach { open ->
+                val editedTerminal = expected.events[3].copy(updatedAt = EpochMillis(999), revision = Revision(9))
+                val competing = expected.events[2].copy(targetId = open.targetId,
+                    snapshot = open.snapshot, payload = open.payload)
+                // Existing-ID update reaches SQLite's index; a new-ID @Upsert can swallow insert conflicts.
+                // Each input itself has one OPEN; the index must reject the stored competitor.
+                assertThrows(android.database.sqlite.SQLiteConstraintException::class.java) {
+                    database.runInTransaction {
+                        persistence.writeEvents(expected.copy(events = listOf(editedTerminal)), dao)
+                        persistence.writeEvents(expected.copy(events = listOf(competing)), dao)
+                    }
+                }
+                assertEquals(expected, persistence.read())
+            }
+        }
+        withDatabase(name) { assertEquals(expected, RoomLocalPersistence(it).read()) }
+    }
+
+    // Catches fabricated end times, terminal reopening, history deletion, and failure to free an OPEN scope.
+    @Test
+    fun suppliedDurationTerminationsAndReplacementOpensSurviveRestartWithoutChangingHistory() = withDatabaseName { name ->
+        val before = durationAggregate()
+        val completed = before.events[0].copy(updatedAt = EpochMillis(900), revision = Revision(4),
+            payload = EventPayload.Duration(EpochMillis(-50), EpochMillis(700), DurationStatus.COMPLETED))
+        val incomplete = before.events[1].copy(updatedAt = EpochMillis(901), revision = Revision(5),
+            payload = EventPayload.Duration(EpochMillis(-50), null, DurationStatus.INCOMPLETE, "target-unlinked"))
+        val terminals = before.copy(events = listOf(completed, incomplete) + before.events.drop(2))
+        val replacementOpens = before.events.take(2).mapIndexed { index, event ->
+            event.copy(id = EventId("replacement-$index"), sequence = Sequence(5L + index),
+                occurredAt = EpochMillis(1000), payload = EventPayload.Duration(EpochMillis(1000)))
+        }
+        val expected = terminals.copy(events = terminals.events + replacementOpens)
+        withDatabase(name) { database ->
+            seed(database, before)
+            database.runInTransaction {
+                RoomLocalPersistence(database).writeEvents(before.copy(events = listOf(completed, incomplete)), database.persistenceDao())
+            }
+        }
+        withDatabase(name) { database ->
+            val dao = database.persistenceDao()
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(terminals, persistence.read())
+            assertEquals(null, dao.readOpenDuration("duration", "no-target"))
+            assertEquals(null, dao.readOpenDuration("duration", "target:no-target"))
+            assertEquals(listOf(700L, null, 60L, null), dao.readEvents().map { it.durationEndAt })
+            assertEquals(listOf(null, "target-unlinked", null, "record-archived"), dao.readEvents().map { it.durationIncompleteReason })
+            database.runInTransaction { persistence.writeEvents(expected.copy(events = replacementOpens), dao) }
+            assertEquals(expected, persistence.read())
+        }
+        withDatabase(name) { database ->
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(expected, persistence.read())
+            database.runInTransaction { persistence.writeEvents(expected.copy(events = emptyList()), database.persistenceDao()) }
+            assertEquals(expected, persistence.read())
+            assertEquals("replacement-0", database.persistenceDao().readOpenDuration("duration", "no-target")!!.eventId)
+            assertEquals("replacement-1", database.persistenceDao().readOpenDuration("duration", "target:no-target")!!.eventId)
+        }
+    }
+
     @Test
     fun stagedEventRowsSurviveReopenWithHistoricalSnapshotsAndExactChronology() = withDatabaseName { name ->
         val expected = aggregate().let { state -> state.copy(events = state.events.map { it.copy(
@@ -215,6 +291,24 @@ class RoomLocalPersistenceRoomTest {
     private fun withDatabaseName(block: (String) -> Unit) {
         val name = "taplog-t011-${UUID.randomUUID()}.db"
         try { block(name) } finally { context.deleteDatabase(name) }
+    }
+
+    private fun durationAggregate(): DomainState {
+        val record = Record(RecordId("duration"), "current duration", null, Behavior.DURATION, hasEvents = true)
+        val target = Target(TargetId("no-target"), "current target", null)
+        fun event(sequence: Long, targetId: TargetId?, payload: EventPayload.Duration) = Event(
+            EventId("duration-$sequence"), record.id, targetId, Behavior.DURATION, EpochMillis(100),
+            EpochMillis(-100), EpochMillis(200), Sequence(sequence), Source.NFC, Revision(3),
+            EventSnapshot("historic duration", "old", if (targetId == null) null else "historic target", null,
+                Behavior.DURATION, null), payload,
+        )
+        return DomainState(records = mapOf(record.id to record), targets = mapOf(target.id to target),
+            events = listOf(
+                event(1, null, EventPayload.Duration(EpochMillis(-50))),
+                event(2, target.id, EventPayload.Duration(EpochMillis(-50))),
+                event(3, null, EventPayload.Duration(EpochMillis(10), EpochMillis(60), DurationStatus.COMPLETED)),
+                event(4, null, EventPayload.Duration(EpochMillis(20), null, DurationStatus.INCOMPLETE, "record-archived")),
+            ), nextSequence = Sequence(10))
     }
 
     private fun aggregate(): DomainState {
