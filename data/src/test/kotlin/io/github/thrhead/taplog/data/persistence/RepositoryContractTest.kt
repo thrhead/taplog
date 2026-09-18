@@ -26,7 +26,6 @@ import io.github.thrhead.taplog.core.domain.StateGroup
 import io.github.thrhead.taplog.core.domain.StateGroupId
 import io.github.thrhead.taplog.core.domain.Target
 import io.github.thrhead.taplog.core.domain.TargetId
-import io.github.thrhead.taplog.core.domain.TargetScope
 import io.github.thrhead.taplog.core.domain.UndoInvalidation
 import io.github.thrhead.taplog.core.domain.UnitName
 import io.github.thrhead.taplog.core.engine.CommitOperation
@@ -67,17 +66,31 @@ class RepositoryContractTest {
 
     @Test
     fun eventRowsUseOneTypedRowPerEventAndRetainImmutableSnapshotsAndNullableScopes() {
-        val actual = committedState()
+        val actual = committedPersistence().read()
         val rows = PersistenceMapper.toRows(actual)
 
         assertEquals(actual.events.size, rows.events.size)
         assertEquals(rows.events.size, rows.events.map { it.eventId }.toSet().size)
         assertEquals(setOf("MOMENT", "COUNTER", "DURATION", "STATE"), rows.events.map { it.behavior }.toSet())
 
+        val moment = rows.events.single { it.eventId == "moment-alpha" }
+        assertNull(moment.counterQuantity)
+        assertNull(moment.counterUnit)
+        assertNull(moment.durationStartAt)
+        assertNull(moment.durationEndAt)
+        assertNull(moment.durationStatus)
+        assertNull(moment.durationIncompleteReason)
+        assertNull(moment.stateGroupId)
+        assertNull(moment.stateGeneration)
+
         val counter = rows.events.single { it.eventId == "counter-alpha" }
         assertEquals("1.25", counter.counterQuantity)
         assertEquals("cups", counter.counterUnit)
+        assertNull(counter.durationStartAt)
+        assertNull(counter.durationEndAt)
         assertNull(counter.durationStatus)
+        assertNull(counter.durationIncompleteReason)
+        assertNull(counter.stateGroupId)
         assertNull(counter.stateGeneration)
         assertEquals("Counter at log", counter.snapshotRecordName)
         assertEquals("Alpha at log", counter.snapshotTargetName)
@@ -86,14 +99,34 @@ class RepositoryContractTest {
         val duration = rows.events.single { it.eventId == "duration-no-target-open" }
         assertNull(duration.targetId)
         assertEquals("no-target", duration.targetScopeKey)
+        assertEquals(90L, duration.durationStartAt)
+        assertNull(duration.durationEndAt)
         assertEquals("OPEN", duration.durationStatus)
+        assertNull(duration.durationIncompleteReason)
         assertNull(duration.counterQuantity)
+        assertNull(duration.counterUnit)
         assertNull(duration.stateGroupId)
+        assertNull(duration.stateGeneration)
+
+        val completedDuration = rows.events.single { it.eventId == "duration-alpha-completed" }
+        assertEquals(200L, completedDuration.durationStartAt)
+        assertEquals(899L, completedDuration.durationEndAt)
+        assertEquals("COMPLETED", completedDuration.durationStatus)
+        assertNull(completedDuration.durationIncompleteReason)
+        assertNull(completedDuration.counterQuantity)
+        assertNull(completedDuration.counterUnit)
+        assertNull(completedDuration.stateGroupId)
+        assertNull(completedDuration.stateGeneration)
 
         val state = rows.events.single { it.eventId == "state-alpha-active" }
         assertEquals("group", state.stateGroupId)
         assertEquals(2L, state.stateGeneration)
+        assertNull(state.counterQuantity)
+        assertNull(state.counterUnit)
+        assertNull(state.durationStartAt)
+        assertNull(state.durationEndAt)
         assertNull(state.durationStatus)
+        assertNull(state.durationIncompleteReason)
     }
 
     @Test
@@ -113,8 +146,8 @@ class RepositoryContractTest {
 
     @Test
     fun eventQueriesUseExactRecordAndTargetScopesAndAscendingTimeThenSequence() {
-        val rows = PersistenceMapper.toRows(committedState())
-        val chronological = rows.events.sortedWith(compareBy<EventEntity> { it.occurredAt }.thenBy { it.sequence })
+        val queries = InMemoryPersistenceQueries(committedPersistence())
+        val chronological = queries.readEvents()
 
         assertEquals(
             listOf(
@@ -124,62 +157,40 @@ class RepositoryContractTest {
             chronological.map { it.eventId },
         )
         assertEquals(listOf(3L, 5L, 9L), chronological.filter { it.occurredAt == 300L }.map { it.sequence })
+        assertEquals(
+            listOf("duration-no-target-open", "duration-alpha-open", "duration-alpha-completed"),
+            queries.readRecordEvents(RecordId("duration")).map { it.eventId },
+        )
 
         assertEquals(
             listOf("duration-alpha-open", "duration-alpha-completed"),
-            rows.forScope(RecordId("duration"), TargetId("alpha")).map { it.eventId },
+            queries.readScopeEvents(RecordId("duration"), TargetId("alpha")).map { it.eventId },
         )
         assertEquals(
             listOf("duration-no-target-open"),
-            rows.forScope(RecordId("duration"), null).map { it.eventId },
+            queries.readScopeEvents(RecordId("duration"), null).map { it.eventId },
         )
-        assertEquals(emptyList<String>(), rows.forScope(RecordId("duration"), TargetId("beta")).map { it.eventId })
-        assertEquals(listOf("moment-beta"), rows.forScope(RecordId("other"), TargetId("beta")).map { it.eventId })
+        assertEquals(emptyList<String>(), queries.readScopeEvents(RecordId("duration"), TargetId("beta")).map { it.eventId })
+        assertEquals(listOf("moment-beta"), queries.readScopeEvents(RecordId("other"), TargetId("beta")).map { it.eventId })
     }
 
     @Test
     fun durationAndStateSelectionRespectOpenStatusAndActiveScopeGeneration() {
-        val rows = PersistenceMapper.toRows(committedState())
+        val queries = InMemoryPersistenceQueries(committedPersistence())
         val alphaScope = StateScope(StateGroupId("group"), TargetId("alpha"))
 
-        assertEquals("duration-alpha-open", rows.openDuration(RecordId("duration"), TargetId("alpha"))?.eventId)
-        assertEquals("duration-no-target-open", rows.openDuration(RecordId("duration"), null)?.eventId)
-        assertNull(rows.openDuration(RecordId("duration"), TargetId("beta")))
-        assertEquals("state-alpha-active", rows.currentState(alphaScope)?.eventId)
-        assertEquals("state-no-target-active", rows.currentState(StateScope(StateGroupId("group"), null))?.eventId)
+        assertEquals("duration-alpha-open", queries.readOpenDuration(RecordId("duration"), TargetId("alpha"))?.eventId)
+        assertEquals("duration-no-target-open", queries.readOpenDuration(RecordId("duration"), null)?.eventId)
+        assertNull(queries.readOpenDuration(RecordId("duration"), TargetId("beta")))
+        assertEquals("state-alpha-active", queries.readCurrentState(alphaScope)?.eventId)
+        assertEquals("state-no-target-active", queries.readCurrentState(StateScope(StateGroupId("group"), null))?.eventId)
     }
 
-    private fun committedState(): DomainState {
+    private fun committedPersistence(): InMemoryLocalPersistence {
         val persistence = InMemoryLocalPersistence()
         val expected = aggregate()
         assertTrue(persistence.commit(CommitOperation(persistence.read(), expected)))
-        return persistence.read()
-    }
-
-    private fun PersistenceRows.forScope(recordId: RecordId, targetId: TargetId?): List<EventEntity> {
-        val scopeKey = PersistenceMapper.encodeTargetScope(
-            targetId?.let(TargetScope::ForTarget) ?: TargetScope.NoTarget,
-        )
-        return events.filter { it.recordId == recordId.value && it.targetScopeKey == scopeKey }
-            .sortedWith(compareBy<EventEntity> { it.occurredAt }.thenBy { it.sequence })
-    }
-
-    private fun PersistenceRows.openDuration(recordId: RecordId, targetId: TargetId?): EventEntity? =
-        forScope(recordId, targetId)
-            .filter { it.behavior == "DURATION" && it.durationStatus == "OPEN" }
-            .maxWithOrNull(compareBy<EventEntity> { it.occurredAt }.thenBy { it.sequence })
-
-    private fun PersistenceRows.currentState(scope: StateScope): EventEntity? {
-        val scopeKey = PersistenceMapper.encodeTargetScope(
-            scope.targetId?.let(TargetScope::ForTarget) ?: TargetScope.NoTarget,
-        )
-        val generation = stateScopes.single {
-            it.stateGroupId == scope.groupId.value && it.targetScopeKey == scopeKey
-        }.generation
-        return events.filter {
-            it.behavior == "STATE" && it.stateGroupId == scope.groupId.value && it.stateGeneration == generation &&
-                it.targetScopeKey == scopeKey
-        }.maxWithOrNull(compareBy<EventEntity> { it.occurredAt }.thenBy { it.sequence })
+        return persistence
     }
 
     private fun aggregate(): DomainState {
