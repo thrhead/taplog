@@ -85,7 +85,7 @@ ORPHANED with last-known snapshots, and related Undo metadata is invalidated;
 then confirm permanent deletion and verify unrelated and no-Target history
 remains.
 
-- [ ] T020 [US3] Implement Record–Target relationship persistence and unlink semantics in `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence/RoomLocalPersistence.kt`, using `linked=false` plus monotonic relationship revisions without deleting Events or either definition.
+- [X] T020 [US3] Implement Record–Target relationship persistence and unlink semantics in `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence/RoomLocalPersistence.kt`, using `linked=false` plus monotonic relationship revisions without deleting Events or either definition.
 - [ ] T021 [US3] Implement Binding persistence and orphaning in `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence/RoomLocalPersistence.kt`, retaining binding identity/status and immutable last-known display snapshots when a Record/Target scope is archived or unlinked.
 - [ ] T022 [US3] Implement Undo receipt and `BindingUndoInvalidationEntity` persistence in `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence/RoomLocalPersistence.kt`, retaining consumed/invalid receipts, expected revisions/generations, before-images, and deterministic invalidation reasons.
 - [ ] T023 [US3] Implement atomic archive/unlink lifecycle effects in `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence/RoomLocalPersistence.kt`, including Event history preservation, Duration termination, State generation advance, binding orphaning, and Undo invalidation.
