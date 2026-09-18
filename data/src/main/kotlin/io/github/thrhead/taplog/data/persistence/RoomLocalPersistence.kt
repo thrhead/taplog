@@ -152,6 +152,53 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         if (rows.bindingUndoInvalidations.isNotEmpty()) dao.upsertBindingUndoInvalidations(rows.bindingUndoInvalidations)
     }
 
+    /**
+     * Receipt/child-invalidation upsert phase for the caller-owned T027 transaction.
+     * Keep core-provided expected context exactly, including receipts for deleted Events.
+     * DomainState cannot represent adapter-only consumed/before-image metadata; reject
+     * that stored context rather than overwriting it. Omitted rows remain retained.
+     * Revision guards validate monotonic metadata, not expected-context CAS.
+     */
+    internal fun writeUndoMetadata(state: DomainState, dao: PersistenceDao) {
+        val rows = PersistenceMapper.toRows(state)
+        val storedRows = PersistenceRows(
+            records = dao.readRecords(), targets = dao.readTargets(), recordTargets = dao.readRecordTargets(),
+            stateGroups = dao.readStateGroups(), events = dao.readEvents(), stateScopes = dao.readStateScopes(),
+            bindings = dao.readBindings(), bindingUndoInvalidations = dao.readBindingUndoInvalidations(),
+            undoReceipts = dao.readUndoReceipts(), metadata = dao.readMetadataRows(),
+        )
+        PersistenceMapper.fromRows(storedRows)
+        val storedReceipts = storedRows.undoReceipts.associateBy { it.receiptId }
+        rows.undoReceipts.forEach { row ->
+            storedReceipts[row.receiptId]?.let { stored ->
+                PersistenceMapper.requireInvariant(row.eventId == stored.eventId &&
+                    row.stateGroupId == stored.stateGroupId && row.targetScopeKey == stored.targetScopeKey,
+                    "Undo receipt identity and scope must not change")
+                PersistenceMapper.requireInvariant(row.expectedEventRevision >= stored.expectedEventRevision &&
+                    row.expectedDatasetGeneration >= stored.expectedDatasetGeneration &&
+                    (row.expectedScopeGeneration == null || row.expectedScopeGeneration >= stored.expectedScopeGeneration!!),
+                    "Undo expected revisions and generations must not decrease")
+                PersistenceMapper.requireInvariant(row == stored || row.expectedEventRevision > stored.expectedEventRevision,
+                    "Undo receipt change requires a higher Event revision")
+            }
+        }
+        val storedBindings = storedRows.bindings.associateBy { it.bindingId }
+        val suppliedBindings = rows.bindings.associateBy { it.bindingId }
+        val storedInvalidations = storedRows.bindingUndoInvalidations.associateBy { it.bindingId to it.receiptId }
+        rows.bindingUndoInvalidations.forEach { row ->
+            val binding = suppliedBindings.getValue(row.bindingId)
+            val stored = storedBindings[row.bindingId]
+                ?: throw MappingFailure("Undo invalidation references a missing stored Binding")
+            PersistenceMapper.requireInvariant(binding.recordId == stored.recordId && binding.targetId == stored.targetId,
+                "Binding scope must not change")
+            PersistenceMapper.requireInvariant(binding.revision >= stored.revision, "Binding revision must not decrease")
+            PersistenceMapper.requireInvariant(storedInvalidations[row.bindingId to row.receiptId] == row || binding.revision > stored.revision,
+                "Undo invalidation change requires a higher Binding revision")
+        }
+        if (rows.undoReceipts.isNotEmpty()) dao.upsertUndoReceipts(rows.undoReceipts)
+        if (rows.bindingUndoInvalidations.isNotEmpty()) dao.upsertBindingUndoInvalidations(rows.bindingUndoInvalidations)
+    }
+
     // The complete atomic write boundary belongs to T027.
     override fun commit(operation: CommitOperation): Boolean =
         throw UnsupportedOperationException("Atomic commits are not implemented")

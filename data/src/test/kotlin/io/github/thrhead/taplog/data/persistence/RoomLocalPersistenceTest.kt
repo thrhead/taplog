@@ -15,6 +15,120 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches missing receipt scope/context, child reasons, omission deletion and unrelated writes.
+    @Test
+    fun undoWritesRetainExactContextAbsentEventsAndOmittedRowsWithoutOtherMutations() {
+        val state = aggregate()
+        val receipt = state.undoReceipts.values.single()
+        val retained = receipt.copy(receiptId = ReceiptId("retained"), eventId = EventId("deleted-event"), scope = null)
+        val original = PersistenceMapper.toRows(state.copy(undoReceipts = mapOf(retained.receiptId to retained)))
+        val database = SnapshotDatabase(original)
+        RoomLocalPersistence(database).writeUndoMetadata(state, database.persistenceDao())
+        assertEquals(listOf(UndoReceiptEntity("retained", "deleted-event", 3, 7),
+            UndoReceiptEntity("receipt", "event-4", 3, 7, "group", "target:target", 2)), database.committed.undoReceipts)
+        assertEquals(listOf(BindingUndoInvalidationEntity("binding", "removed", "STALE_REVISION")), database.committed.bindingUndoInvalidations)
+        assertEquals(original, database.committed.copy(undoReceipts = original.undoReceipts))
+        val after = database.committed
+        RoomLocalPersistence(database).writeUndoMetadata(DomainState(), database.persistenceDao())
+        assertEquals(after, database.committed)
+        val missingEvent = receipt.copy(receiptId = ReceiptId("missing"), eventId = EventId("absent"))
+        RoomLocalPersistence(database).writeUndoMetadata(state.copy(undoReceipts = mapOf(missingEvent.receiptId to missingEvent)), database.persistenceDao())
+        assertEquals(missingEvent, RoomLocalPersistence(database).read().undoReceipts.getValue(missingEvent.receiptId))
+    }
+
+    // Catches revision regressions, mutable receipt identity/scope and changed same-revision context.
+    @Test
+    fun undoReceiptReplaysAreIdempotentAndContextAdvancesMonotonically() {
+        val state = aggregate()
+        val receipt = state.undoReceipts.values.single()
+        val database = SnapshotDatabase(PersistenceMapper.toRows(state))
+        RoomLocalPersistence(database).writeUndoMetadata(state, database.persistenceDao())
+        val advanced = receipt.copy(eventRevision = Revision(5), datasetGeneration = DatasetGeneration(9),
+            scope = receipt.scope!!.copy(generation = DatasetGeneration(4)))
+        val updated = state.copy(undoReceipts = mapOf(advanced.receiptId to advanced))
+        RoomLocalPersistence(database).writeUndoMetadata(updated, database.persistenceDao())
+        assertEquals(advanced, RoomLocalPersistence(database).read().undoReceipts.getValue(advanced.receiptId))
+        val before = database.committed
+        val first = receipt.copy(receiptId = ReceiptId("first"))
+        listOf(advanced.copy(eventRevision = Revision(4)), advanced.copy(datasetGeneration = DatasetGeneration(8), eventRevision = Revision(6)),
+            advanced.copy(scope = advanced.scope!!.copy(generation = DatasetGeneration(3)), eventRevision = Revision(6)),
+            advanced.copy(datasetGeneration = DatasetGeneration(10)),
+            advanced.copy(eventId = EventId("different"), eventRevision = Revision(6)),
+            advanced.copy(scope = null, eventRevision = Revision(6)),
+            advanced.copy(scope = ScopeContext(StateScope(StateGroupId("group"), null), DatasetGeneration(5)), eventRevision = Revision(6))).forEach { invalid ->
+            assertThrows(MappingFailure::class.java) {
+                RoomLocalPersistence(database).writeUndoMetadata(updated.copy(undoReceipts = linkedMapOf(first.receiptId to first, invalid.receiptId to invalid)), database.persistenceDao())
+            }
+            assertEquals(before, database.committed)
+        }
+    }
+
+    // Catches overwritten child reasons without revision progress and loss of omitted child identities.
+    @Test
+    fun undoInvalidationsAreAdditiveAndReasonChangesRequireBindingRevisionAdvance() {
+        val state = aggregate()
+        val binding = state.bindings.values.single()
+        val database = SnapshotDatabase(PersistenceMapper.toRows(state))
+        val added = binding.copy(revision = Revision(6), undoInvalidations = listOf(UndoInvalidation(ReceiptId("another"), ResultReason.STALE_DATASET_GENERATION)))
+        RoomLocalPersistence(database).writeUndoMetadata(state.copy(bindings = mapOf(added.bindingId to added)), database.persistenceDao())
+        assertEquals(listOf(BindingUndoInvalidationEntity("binding", "removed", "STALE_REVISION"),
+            BindingUndoInvalidationEntity("binding", "another", "STALE_DATASET_GENERATION")), database.committed.bindingUndoInvalidations)
+        val before = database.committed
+        val changed = binding.copy(undoInvalidations = listOf(UndoInvalidation(ReceiptId("removed"), ResultReason.STALE_DATASET_GENERATION)))
+        assertThrows(MappingFailure::class.java) {
+            RoomLocalPersistence(database).writeUndoMetadata(state.copy(bindings = mapOf(changed.bindingId to changed)), database.persistenceDao())
+        }
+        assertEquals(before, database.committed)
+        RoomLocalPersistence(database).writeUndoMetadata(state.copy(bindings = mapOf(changed.bindingId to changed.copy(revision = Revision(6)))), database.persistenceDao())
+        assertEquals("STALE_DATASET_GENERATION", database.committed.bindingUndoInvalidations.single { it.receiptId == "removed" }.reason)
+        assertEquals(before.bindings, database.committed.bindings)
+    }
+
+    // Catches malformed supplied batches and missing or stale invalidation parents before writes.
+    @Test
+    fun invalidUndoAggregateAndInvalidationParentsFailBeforeAnyWrite() {
+        val state = aggregate()
+        val receipt = state.undoReceipts.values.single()
+        val binding = state.bindings.values.single()
+        val original = PersistenceMapper.toRows(state)
+        listOf(state.copy(undoReceipts = mapOf(ReceiptId("wrong") to receipt)),
+            state.copy(undoReceipts = mapOf(receipt.receiptId to receipt.copy(eventRevision = Revision(-1)))),
+            state.copy(undoReceipts = mapOf(receipt.receiptId to receipt.copy(datasetGeneration = DatasetGeneration(-1)))),
+            state.copy(undoReceipts = mapOf(receipt.receiptId to receipt.copy(scope = receipt.scope!!.copy(generation = DatasetGeneration(-1))))),
+            state.copy(bindings = mapOf(binding.bindingId to binding.copy(revision = Revision(4)))),
+            state.copy(bindings = mapOf(binding.bindingId to binding.copy(recordId = RecordId("moment"), revision = Revision(6)))),
+            state.copy(bindings = mapOf(binding.bindingId to binding.copy(bindingId = BindingId("wrong"))))).forEach { invalid ->
+            val database = SnapshotDatabase(original)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeUndoMetadata(invalid, database.persistenceDao()) }
+            assertEquals(original, database.committed)
+        }
+        val missingParent = original.copy(bindings = emptyList(), bindingUndoInvalidations = emptyList())
+        val database = SnapshotDatabase(missingParent)
+        assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeUndoMetadata(state, database.persistenceDao()) }
+        assertEquals(missingParent, database.committed)
+    }
+
+    // Catches silent repair of unrepresentable consumed/invalid/before-image/reset context.
+    @Test
+    fun unsupportedStoredUndoContextFailsClosedWithoutSilentlyRewritingReceipts() {
+        val state = aggregate()
+        val original = PersistenceMapper.toRows(state)
+        val receipt = original.undoReceipts.single()
+        val invalidReceipts = listOf(receipt.copy(consumed = true), receipt.copy(invalidationReason = "STALE_REVISION"),
+            receipt.copy(operation = "EDIT"), receipt.copy(beforeImageJson = "{\"historical\":true}"),
+            receipt.copy(expectedEventRevision = -1), receipt.copy(expectedDatasetGeneration = -1),
+            receipt.copy(expectedScopeGeneration = -1), receipt.copy(targetScopeKey = null))
+        val invalidRows = invalidReceipts.map { original.copy(undoReceipts = listOf(it)) } + listOf(
+            original.copy(metadata = emptyList()), original.copy(metadata = listOf(DatasetMetadataEntity(1, 7, 20, 2))),
+            original.copy(stateScopes = original.stateScopes.map { it.copy(resetAt = 99) }),
+            original.copy(bindingUndoInvalidations = original.bindingUndoInvalidations.map { it.copy(reason = "UNKNOWN") }))
+        invalidRows.forEach { stored ->
+            val database = SnapshotDatabase(stored)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeUndoMetadata(state, database.persistenceDao()) }
+            assertEquals(stored, database.committed)
+        }
+    }
+
     // Catches lost lifecycle/snapshot/child metadata and accidental writes to unrelated families.
     @Test
     fun bindingWritesPersistSuppliedOrphaningAndHistoricalDisplayWithoutOtherMutations() {
@@ -664,6 +778,13 @@ class RoomLocalPersistenceTest {
                     val rows = arguments!![0] as List<BindingEntity>
                     committed = committed.copy(bindings = (committed.bindings.associateBy { it.bindingId } +
                         rows.associateBy { it.bindingId }).values.toList())
+                    return@proxyWithArguments null
+                }
+                "upsertUndoReceipts" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<UndoReceiptEntity>
+                    committed = committed.copy(undoReceipts = (committed.undoReceipts.associateBy { it.receiptId } +
+                        rows.associateBy { it.receiptId }).values.toList())
                     return@proxyWithArguments null
                 }
                 "upsertBindingUndoInvalidations" -> {

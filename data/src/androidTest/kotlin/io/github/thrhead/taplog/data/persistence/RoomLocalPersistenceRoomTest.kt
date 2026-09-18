@@ -16,6 +16,57 @@ import java.util.UUID
 class RoomLocalPersistenceRoomTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    // Catches lost receipt context or unwanted Event FK constraints across normal reopen.
+    @Test
+    fun stagedUndoMetadataRetainsDeletedEventContextAndOmittedReceiptsAcrossReopen() = withDatabaseName { name ->
+        val base = aggregate()
+        val receipt = base.undoReceipts.values.single()
+        val added = receipt.copy(receiptId = ReceiptId("retained-deleted"), eventId = EventId("deleted-event"), scope = null)
+        val supplied = base.copy(undoReceipts = mapOf(added.receiptId to added))
+        withDatabase(name) { database ->
+            seed(database, base)
+            val dao = database.persistenceDao()
+            val history = dao.readEvents()
+            val bindings = dao.readBindings()
+            database.runInTransaction { RoomLocalPersistence(database).writeUndoMetadata(supplied, dao) }
+            assertEquals(history, dao.readEvents())
+            assertEquals(bindings, dao.readBindings())
+            assertEquals(UndoReceiptEntity("retained-deleted", "deleted-event", 3, 7), dao.readUndoReceipt("retained-deleted"))
+        }
+        withDatabase(name) { database ->
+            val expected = base.copy(undoReceipts = base.undoReceipts + (added.receiptId to added))
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(expected, persistence.read())
+            database.runInTransaction {
+                persistence.writeUndoMetadata(supplied, database.persistenceDao())
+                persistence.writeUndoMetadata(DomainState(), database.persistenceDao())
+            }
+            assertEquals(expected, persistence.read())
+        }
+    }
+
+    // Catches transaction ownership moving into the partial Undo metadata phase.
+    @Test
+    fun callerTransactionRollsBackUndoReceiptAndInvalidationUpserts() = withDatabaseName { name ->
+        val base = aggregate()
+        val binding = base.bindings.values.single()
+        val receipt = base.undoReceipts.values.single().copy(receiptId = ReceiptId("new"), eventId = EventId("absent"))
+        val changed = base.copy(undoReceipts = mapOf(receipt.receiptId to receipt),
+            bindings = mapOf(binding.bindingId to binding.copy(revision = Revision(6),
+                undoInvalidations = listOf(UndoInvalidation(ReceiptId("another"), ResultReason.STALE_DATASET_GENERATION)))))
+        withDatabase(name) { database ->
+            seed(database, base)
+            assertThrows(IllegalStateException::class.java) {
+                database.runInTransaction {
+                    RoomLocalPersistence(database).writeUndoMetadata(changed, database.persistenceDao())
+                    error("Abort after Undo metadata phase")
+                }
+            }
+            assertEquals(base, RoomLocalPersistence(database).read())
+        }
+        withDatabase(name) { assertEquals(base, RoomLocalPersistence(it).read()) }
+    }
+
     // Catches lost snapshots/child rows across SQLite reopen and binding retargeting.
     @Test
     fun stagedBindingOrphaningRetainsSnapshotAndInvalidationAcrossReopen() = withDatabaseName { name ->
