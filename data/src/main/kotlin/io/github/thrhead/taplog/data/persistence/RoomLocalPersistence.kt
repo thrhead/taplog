@@ -89,6 +89,30 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         if (rows.stateScopes.isNotEmpty()) dao.upsertStateScopes(rows.stateScopes)
     }
 
+    /**
+     * Relationship-only upsert phase for T027's caller-owned compare/write transaction,
+     * after Record/Target parents exist. Unlink is supplied as linked=false with a higher
+     * revision; omitted pairs, definitions, history, and other lifecycle families remain
+     * untouched. Preflight the complete batch before writing. This revision guard is a
+     * monotonicity invariant, not expected-context CAS or a complete atomic commit.
+     */
+    internal fun writeRelationships(state: DomainState, dao: PersistenceDao) {
+        val rows = PersistenceMapper.toRows(state)
+        // Validate stored Dataset context without replacing it or comparing caller context.
+        PersistenceMapper.fromRows(PersistenceRows(metadata = dao.readMetadataRows()))
+        rows.recordTargets.forEach { row ->
+            PersistenceMapper.requireInvariant(dao.readRecord(row.recordId) != null, "Missing stored referenced Record")
+            PersistenceMapper.requireInvariant(dao.readTarget(row.targetId) != null, "Missing stored referenced Target")
+            dao.readRecordTarget(row.recordId, row.targetId)?.let { stored ->
+                PersistenceMapper.requireInvariant(stored.revision >= 0, "Stored Relationship revision must be nonnegative")
+                PersistenceMapper.requireInvariant(row.revision >= stored.revision, "Relationship revision must not decrease")
+                PersistenceMapper.requireInvariant(row.linked == stored.linked || row.revision > stored.revision,
+                    "Relationship lifecycle change requires a higher revision")
+            }
+        }
+        if (rows.recordTargets.isNotEmpty()) dao.upsertRecordTargets(rows.recordTargets)
+    }
+
     // The complete atomic write boundary belongs to T027.
     override fun commit(operation: CommitOperation): Boolean =
         throw UnsupportedOperationException("Atomic commits are not implemented")

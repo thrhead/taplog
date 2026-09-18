@@ -15,6 +15,98 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches scope broadening, identity loss, and accidental mutation of history or definitions.
+    @Test
+    fun relationshipWritesUnlinkOnlyTheExactPairAndRetainAllOtherFamilies() {
+        val state = aggregate()
+        val target = TargetId("other")
+        val originalPair = RecordId("counter") to TargetId("target")
+        val addedPair = RecordId("counter") to target
+        val sharedPair = RecordId("moment") to TargetId("target")
+        val linked = state.copy(targets = state.targets + (target to Target(target, "Other", null)),
+            relationships = mapOf(originalPair to RecordTarget(originalPair.first, originalPair.second, true, Revision(4)),
+                sharedPair to RecordTarget(sharedPair.first, sharedPair.second, true, Revision(9))))
+        val original = PersistenceMapper.toRows(linked)
+        val database = SnapshotDatabase(original)
+        val unlinked = linked.copy(relationships = linked.relationships +
+            (originalPair to linked.relationships.getValue(originalPair).copy(linked = false, revision = Revision(5))) +
+            (addedPair to RecordTarget(addedPair.first, addedPair.second, true, Revision(0))))
+        RoomLocalPersistence(database).writeRelationships(unlinked, database.persistenceDao())
+        assertEquals(listOf(RecordTargetEntity("counter", "target", false, 5),
+            RecordTargetEntity("moment", "target", true, 9), RecordTargetEntity("counter", "other", true, 0)),
+            database.committed.recordTargets)
+        assertEquals(original, database.committed.copy(recordTargets = original.recordTargets))
+        assertEquals(unlinked, RoomLocalPersistence(SnapshotDatabase(database.committed)).read())
+        RoomLocalPersistence(database).writeRelationships(unlinked.copy(relationships = emptyMap()), database.persistenceDao())
+        RoomLocalPersistence(database).writeRelationships(DomainState(), database.persistenceDao())
+        assertEquals(unlinked, RoomLocalPersistence(database).read())
+    }
+
+    // Catches regression, same-revision lifecycle edits, and partial writes before a later invalid pair.
+    @Test
+    fun relationshipRevisionsAreMonotonicWhileIdenticalReplaysAreAccepted() {
+        val state = aggregate()
+        val pair = state.relationships.keys.single()
+        val relationship = state.relationships.getValue(pair)
+        val database = SnapshotDatabase(PersistenceMapper.toRows(state))
+        RoomLocalPersistence(database).writeRelationships(state, database.persistenceDao())
+        val advanced = state.copy(relationships = mapOf(pair to relationship.copy(revision = Revision(8))))
+        RoomLocalPersistence(database).writeRelationships(advanced, database.persistenceDao())
+        val before = database.committed
+        val firstPair = RecordId("moment") to pair.second
+        listOf(relationship.copy(revision = Revision(7)), relationship.copy(linked = true, revision = Revision(8))).forEach { invalid ->
+            val supplied = advanced.copy(relationships = linkedMapOf(
+                firstPair to RecordTarget(firstPair.first, firstPair.second, true, Revision(1)), pair to invalid))
+            assertThrows(MappingFailure::class.java) {
+                RoomLocalPersistence(database).writeRelationships(supplied, database.persistenceDao())
+            }
+            assertEquals(before, database.committed)
+        }
+        val relinked = advanced.copy(relationships = mapOf(pair to relationship.copy(linked = true, revision = Revision(9))))
+        RoomLocalPersistence(database).writeRelationships(relinked, database.persistenceDao())
+        assertEquals(relinked, RoomLocalPersistence(database).read())
+    }
+
+    // Catches absent supplied/stored parents, mismatched scope keys, and negative revisions before writes.
+    @Test
+    fun invalidRelationshipsFailBeforeAnyRelationshipWrite() {
+        val state = aggregate()
+        val pair = state.relationships.keys.single()
+        val relationship = state.relationships.getValue(pair)
+        val original = PersistenceMapper.toRows(state)
+        val invalidStates = listOf(state.copy(records = emptyMap()), state.copy(targets = emptyMap()),
+            state.copy(relationships = mapOf(pair to relationship.copy(revision = Revision(-1)))),
+            state.copy(relationships = mapOf((RecordId("moment") to pair.second) to relationship)),
+            state.copy(generation = DatasetGeneration(-1)))
+        invalidStates.forEach { invalid ->
+            val database = SnapshotDatabase(original)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeRelationships(invalid, database.persistenceDao()) }
+            assertEquals(original, database.committed)
+        }
+        listOf(original.copy(records = emptyList()), original.copy(targets = emptyList()),
+            original.copy(recordTargets = listOf(RecordTargetEntity("counter", "target", false, -1)))).forEach { stored ->
+            val database = SnapshotDatabase(stored)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeRelationships(state, database.persistenceDao()) }
+            assertEquals(stored, database.committed)
+        }
+    }
+
+    // Catches mutation under unsupported stored Dataset context instead of silently repairing it.
+    @Test
+    fun unsupportedStoredMetadataRejectsRelationshipWritesWithoutChanges() {
+        val state = aggregate()
+        val original = PersistenceMapper.toRows(state)
+        listOf(emptyList(), listOf(DatasetMetadataEntity(1, 7, 20, 2)),
+            listOf(DatasetMetadataEntity(2, 7, 20, 1)),
+            listOf(DatasetMetadataEntity(1, -1, 20, 1)), listOf(DatasetMetadataEntity(1, 7, 0, 1)),
+            listOf(DatasetMetadataEntity(1, 7, 20, 1), DatasetMetadataEntity(2, 7, 20, 1))).forEach { metadata ->
+            val stored = original.copy(metadata = metadata)
+            val database = SnapshotDatabase(stored)
+            assertThrows(MappingFailure::class.java) { RoomLocalPersistence(database).writeRelationships(state, database.persistenceDao()) }
+            assertEquals(stored, database.committed)
+        }
+    }
+
     // Catches missing State upserts, scope collisions, and accidental writes to other families.
     @Test
     fun stateGroupAndScopeWritesRetainHistoryAndRecoverExclusivePointers() {
@@ -453,6 +545,19 @@ class RoomLocalPersistenceTest {
 
         override fun persistenceDao(): PersistenceDao = proxyWithArguments(PersistenceDao::class.java) { method, arguments ->
             when (method) {
+                "readMetadataRows" -> if (snapshot == null) return@proxyWithArguments committed.metadata
+                "readRecord" -> return@proxyWithArguments committed.records.singleOrNull { it.recordId == arguments!![0] }
+                "readTarget" -> return@proxyWithArguments committed.targets.singleOrNull { it.targetId == arguments!![0] }
+                "readRecordTarget" -> return@proxyWithArguments committed.recordTargets.singleOrNull {
+                    it.recordId == arguments!![0] && it.targetId == arguments[1]
+                }
+                "upsertRecordTargets" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<RecordTargetEntity>
+                    committed = committed.copy(recordTargets = (committed.recordTargets.associateBy { it.recordId to it.targetId } +
+                        rows.associateBy { it.recordId to it.targetId }).values.toList())
+                    return@proxyWithArguments null
+                }
                 "readStateScopes" -> if (snapshot == null) return@proxyWithArguments committed.stateScopes
                 "upsertStateGroups" -> {
                     @Suppress("UNCHECKED_CAST")

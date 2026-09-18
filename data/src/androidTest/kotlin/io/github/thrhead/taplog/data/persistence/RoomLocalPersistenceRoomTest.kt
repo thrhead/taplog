@@ -16,6 +16,95 @@ import java.util.UUID
 class RoomLocalPersistenceRoomTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    // Catches unlink cascades and scope broadening across normal Room close/reopen.
+    @Test
+    fun stagedRelationshipUnlinkRetainsDefinitionsAndExactHistoricalScopesAcrossReopen() = withDatabaseName { name ->
+        val base = aggregate()
+        val pair = base.relationships.keys.single()
+        val otherTarget = Target(TargetId("other"), "Other", null)
+        val otherPair = pair.first to otherTarget.id
+        val sharedPair = RecordId("moment") to pair.second
+        val counterHistory = base.events[1]
+        val before = base.copy(targets = base.targets + (otherTarget.id to otherTarget), relationships = mapOf(
+            pair to RecordTarget(pair.first, pair.second, true, Revision(4)),
+            otherPair to RecordTarget(otherPair.first, otherPair.second, true, Revision(3)),
+            sharedPair to RecordTarget(sharedPair.first, sharedPair.second, true, Revision(2))),
+            events = base.events + counterHistory.copy(id = EventId("other-event"), targetId = otherTarget.id,
+                sequence = Sequence(5), snapshot = counterHistory.snapshot.copy(targetName = "historical other")))
+        val unlinked = before.copy(relationships = before.relationships +
+            (pair to before.relationships.getValue(pair).copy(linked = false, revision = Revision(5))))
+        withDatabase(name) { database ->
+            seed(database, before)
+            val dao = database.persistenceDao()
+            val events = dao.readEvents()
+            val records = dao.readRecords()
+            val targets = dao.readTargets()
+            database.runInTransaction { RoomLocalPersistence(database).writeRelationships(unlinked, dao) }
+            assertEquals(events, dao.readEvents())
+            assertEquals(records, dao.readRecords())
+            assertEquals(targets, dao.readTargets())
+            assertEquals(RecordTargetEntity("counter", "target", false, 5), dao.readRecordTarget("counter", "target"))
+            assertEquals(listOf("event-2"), dao.readScopeEvents("counter", "target:target").map { it.eventId })
+            assertEquals(listOf("other-event"), dao.readScopeEvents("counter", "target:other").map { it.eventId })
+            assertEquals(listOf("event-1"), dao.readScopeEvents("moment", "no-target").map { it.eventId })
+        }
+        withDatabase(name) { database ->
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(unlinked, persistence.read())
+            database.runInTransaction {
+                persistence.writeRelationships(unlinked, database.persistenceDao())
+                persistence.writeRelationships(DomainState(), database.persistenceDao())
+            }
+            assertEquals(unlinked, persistence.read())
+        }
+    }
+
+    // Catches ownership of the transaction moving into the staged phase.
+    @Test
+    fun callerTransactionRollsBackStagedRelationshipUnlink() = withDatabaseName { name ->
+        val before = aggregate().let { it.copy(relationships = it.relationships.mapValues { (_, pair) -> pair.copy(linked = true) }) }
+        val unlinked = before.copy(relationships = before.relationships.mapValues { (_, pair) -> pair.copy(linked = false, revision = Revision(5)) })
+        withDatabase(name) { database ->
+            seed(database, before)
+            assertThrows(IllegalStateException::class.java) {
+                database.runInTransaction {
+                    RoomLocalPersistence(database).writeRelationships(unlinked, database.persistenceDao())
+                    error("Abort after relationship phase")
+                }
+            }
+            assertEquals(before, RoomLocalPersistence(database).read())
+        }
+        withDatabase(name) { assertEquals(before, RoomLocalPersistence(it).read()) }
+    }
+
+    // Catches revision regression or unsupported metadata overwriting an otherwise valid relationship batch.
+    @Test
+    fun invalidRelationshipRevisionsAndStoredMetadataFailWithoutChangingRows() = withDatabaseName { name ->
+        val before = aggregate()
+        withDatabase(name) { database ->
+            seed(database, before)
+            val dao = database.persistenceDao()
+            val stored = dao.readRecordTargets()
+            val pair = before.relationships.keys.single()
+            val relationship = before.relationships.getValue(pair)
+            listOf(relationship.copy(revision = Revision(3)), relationship.copy(linked = true),
+                relationship.copy(revision = Revision(-1))).forEach { invalid ->
+                assertThrows(MappingFailure::class.java) {
+                    database.runInTransaction {
+                        RoomLocalPersistence(database).writeRelationships(before.copy(relationships = mapOf(pair to invalid)), dao)
+                    }
+                }
+                assertEquals(stored, dao.readRecordTargets())
+            }
+            dao.upsertMetadata(listOf(DatasetMetadataEntity(1, 7, 20, 2)))
+            assertThrows(MappingFailure::class.java) {
+                database.runInTransaction { RoomLocalPersistence(database).writeRelationships(before, dao) }
+            }
+            assertEquals(stored, dao.readRecordTargets())
+            assertEquals(listOf(DatasetMetadataEntity(1, 7, 20, 2)), dao.readMetadataRows())
+        }
+    }
+
     // Catches scope collisions, wrong chronology/generation selection, or history loss on scope updates/reopen.
     @Test
     fun stagedStateScopesRecoverExclusivityAndRetainStaleHistoryAcrossNormalReopen() = withDatabaseName { name ->
