@@ -1,10 +1,7 @@
 package io.github.thrhead.taplog.data.persistence
 
-import io.github.thrhead.taplog.core.domain.DomainState
-import io.github.thrhead.taplog.core.domain.EpochMillis
-import io.github.thrhead.taplog.core.domain.TargetId
-import io.github.thrhead.taplog.core.domain.TargetScope
-import io.github.thrhead.taplog.core.domain.Quantity
+import io.github.thrhead.taplog.core.domain.*
+import io.github.thrhead.taplog.core.engine.DomainState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -54,9 +51,23 @@ class PersistenceMapperTest {
     }
 
     @Test
-    fun aggregateSnapshotsAndNullableDiscriminatorsRemainCoveredByCanonicalSurface() {
-        PersistenceMapperAggregateTest().completeAggregateRoundTripsEveryFamilyAndHistoricalSnapshot()
-        PersistenceMapperAggregateTest().rowsRejectMissingAndExtraneousTypedPayloadColumns()
-        PersistenceMapperAggregateTest().rowsRejectDiscriminatorSnapshotUnitQuantityAndScopeDisagreement()
+    fun snapshotsNullableTargetsAndDiscriminatorsRoundTripWithoutRepair() {
+        val record = Record(RecordId("record"), "Current name", "current-icon", Behavior.MOMENT, hasEvents = true)
+        val event = Event(
+            EventId("event"), record.id, null, Behavior.MOMENT,
+            EpochMillis(10), EpochMillis(11), EpochMillis(12), Sequence(1), Source.APP, Revision(1),
+            EventSnapshot("Historical name", "historical-icon", null, null, Behavior.MOMENT, null),
+            EventPayload.Moment,
+        )
+        val state = DomainState(records = mapOf(record.id to record), events = listOf(event), nextSequence = Sequence(2))
+        val rows = PersistenceMapper.toRows(state)
+
+        assertEquals("Historical name", rows.events.single().snapshotRecordName)
+        assertEquals(null, rows.events.single().targetId)
+        assertEquals("no-target", rows.events.single().targetScopeKey)
+        assertEquals(state, PersistenceMapper.fromRows(rows))
+
+        val wrongDiscriminator = rows.copy(events = listOf(rows.events.single().copy(behavior = "COUNTER")))
+        assertThrows(MappingFailure::class.java) { PersistenceMapper.fromRows(wrongDiscriminator) }
     }
 }
