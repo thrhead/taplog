@@ -84,3 +84,4 @@ Task 32: complete (v1 database, empty production migration matrix, export, and f
 Task 33: complete (schema export checked in; quickstart documents v1, empty matrix, and future migration ownership)
 Task 34: complete (dedicated fresh-v1 migration/open coverage added; Android-test source compiles)
 Task 35: complete (dedicated unsupported-version/corrupt-row/no-repair coverage added; Android-test source compiles)
+Task 36: complete (dependency-boundary tests added; focused test passed)
