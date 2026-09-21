@@ -15,6 +15,31 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches clearing adapter-owned history when the core projection replays or advances context.
+    @Test
+    fun undoWritesPreserveConsumedInvalidAndBeforeImageAdapterFields() {
+        val state = aggregate()
+        val original = PersistenceMapper.toRows(state)
+        val receipt = original.undoReceipts.single()
+        listOf(receipt.copy(consumed = true), receipt.copy(invalidationReason = "STALE_REVISION"),
+            receipt.copy(operation = "EDIT", beforeImageJson = "{\"historical\":true}", consumed = true,
+                invalidationReason = "STALE_SCOPE_CONTEXT")).forEach { storedReceipt ->
+            val stored = original.copy(undoReceipts = listOf(storedReceipt))
+            val database = SnapshotDatabase(stored)
+            val persistence = RoomLocalPersistence(database)
+            assertEquals(state, persistence.read())
+            persistence.writeUndoMetadata(state, database.persistenceDao())
+            assertEquals(stored, database.committed)
+            val coreReceipt = state.undoReceipts.values.single().copy(eventRevision = Revision(4))
+            persistence.writeUndoMetadata(state.copy(undoReceipts = mapOf(coreReceipt.receiptId to coreReceipt)), database.persistenceDao())
+            assertEquals(listOf(storedReceipt.copy(expectedEventRevision = 4)), database.committed.undoReceipts)
+            assertEquals(stored, database.committed.copy(undoReceipts = stored.undoReceipts))
+            val after = database.committed
+            persistence.writeUndoMetadata(DomainState(), database.persistenceDao())
+            assertEquals(after, database.committed)
+        }
+    }
+
     // Catches missing receipt scope/context, child reasons, omission deletion and unrelated writes.
     @Test
     fun undoWritesRetainExactContextAbsentEventsAndOmittedRowsWithoutOtherMutations() {
@@ -108,14 +133,15 @@ class RoomLocalPersistenceTest {
         assertEquals(missingParent, database.committed)
     }
 
-    // Catches silent repair of unrepresentable consumed/invalid/before-image/reset context.
+    // Catches silent repair of malformed adapter receipt/reset context.
     @Test
     fun unsupportedStoredUndoContextFailsClosedWithoutSilentlyRewritingReceipts() {
         val state = aggregate()
         val original = PersistenceMapper.toRows(state)
         val receipt = original.undoReceipts.single()
-        val invalidReceipts = listOf(receipt.copy(consumed = true), receipt.copy(invalidationReason = "STALE_REVISION"),
+        val invalidReceipts = listOf(receipt.copy(invalidationReason = "UNKNOWN"),
             receipt.copy(operation = "EDIT"), receipt.copy(beforeImageJson = "{\"historical\":true}"),
+            receipt.copy(operation = "", beforeImageJson = "{}"), receipt.copy(operation = "EDIT", beforeImageJson = " "),
             receipt.copy(expectedEventRevision = -1), receipt.copy(expectedDatasetGeneration = -1),
             receipt.copy(expectedScopeGeneration = -1), receipt.copy(targetScopeKey = null))
         val invalidRows = invalidReceipts.map { original.copy(undoReceipts = listOf(it)) } + listOf(
@@ -226,7 +252,7 @@ class RoomLocalPersistenceTest {
         val invalidRows = invalidMetadata.map { original.copy(metadata = it) } + listOf(
             original.copy(stateScopes = original.stateScopes.map { it.copy(resetSequence = 9) }),
             original.copy(stateScopes = original.stateScopes.map { it.copy(resetAt = 100) }),
-            original.copy(undoReceipts = original.undoReceipts.map { it.copy(consumed = true) }),
+            original.copy(undoReceipts = original.undoReceipts.map { it.copy(invalidationReason = "UNKNOWN") }),
             original.copy(bindingUndoInvalidations = original.bindingUndoInvalidations.map { it.copy(reason = "UNKNOWN") }))
         invalidRows.forEach { stored ->
             val database = SnapshotDatabase(stored)

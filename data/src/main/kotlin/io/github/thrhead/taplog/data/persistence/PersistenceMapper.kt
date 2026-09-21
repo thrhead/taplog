@@ -87,8 +87,13 @@ internal object PersistenceMapper {
             invalidations[row.bindingId].orEmpty().map { UndoInvalidation(ReceiptId(it.receiptId), enum(it.reason)) }) }) { it.bindingId }
         invalidations.keys.forEach { requireInvariant(BindingId(it) in bindings, "Undo invalidation references a missing Binding") }
         val receipts = unique(rows.undoReceipts.map { row ->
-            requireInvariant(row.operation == null && row.beforeImageJson == null && !row.consumed && row.invalidationReason == null,
-                "Undo adapter metadata is not represented by UndoReceipt")
+            // DomainState projects core context only. Adapter-owned metadata stays in
+            // the row and must be preserved by receipt writes, not reconstructed here.
+            requireInvariant((row.operation == null) == (row.beforeImageJson == null),
+                "Undo operation and before-image must be populated together")
+            requireInvariant(row.operation == null || (row.operation.isNotBlank() && row.beforeImageJson!!.isNotBlank()),
+                "Undo operation and before-image must not be blank")
+            row.invalidationReason?.let { enum<ResultReason>(it) }
             val scopePresent = listOf(row.stateGroupId != null, row.targetScopeKey != null, row.expectedScopeGeneration != null)
             requireInvariant(scopePresent.all { it } || scopePresent.none { it }, "Undo State scope is partially populated")
             UndoReceipt(ReceiptId(row.receiptId), EventId(row.eventId), Revision(row.expectedEventRevision), DatasetGeneration(row.expectedDatasetGeneration),

@@ -155,8 +155,8 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
     /**
      * Receipt/child-invalidation upsert phase for the caller-owned T027 transaction.
      * Keep core-provided expected context exactly, including receipts for deleted Events.
-     * DomainState cannot represent adapter-only consumed/before-image metadata; reject
-     * that stored context rather than overwriting it. Omitted rows remain retained.
+     * DomainState cannot author adapter-only metadata; preserve the validated stored
+     * fields when updating the core context. Omitted rows remain retained.
      * Revision guards validate monotonic metadata, not expected-context CAS.
      */
     internal fun writeUndoMetadata(state: DomainState, dao: PersistenceDao) {
@@ -169,7 +169,13 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         )
         PersistenceMapper.fromRows(storedRows)
         val storedReceipts = storedRows.undoReceipts.associateBy { it.receiptId }
-        rows.undoReceipts.forEach { row ->
+        val receipts = rows.undoReceipts.map { row ->
+            storedReceipts[row.receiptId]?.let { stored ->
+                row.copy(operation = stored.operation, beforeImageJson = stored.beforeImageJson,
+                    consumed = stored.consumed, invalidationReason = stored.invalidationReason)
+            } ?: row
+        }
+        receipts.forEach { row ->
             storedReceipts[row.receiptId]?.let { stored ->
                 PersistenceMapper.requireInvariant(row.eventId == stored.eventId &&
                     row.stateGroupId == stored.stateGroupId && row.targetScopeKey == stored.targetScopeKey,
@@ -195,7 +201,7 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
             PersistenceMapper.requireInvariant(storedInvalidations[row.bindingId to row.receiptId] == row || binding.revision > stored.revision,
                 "Undo invalidation change requires a higher Binding revision")
         }
-        if (rows.undoReceipts.isNotEmpty()) dao.upsertUndoReceipts(rows.undoReceipts)
+        if (receipts.isNotEmpty()) dao.upsertUndoReceipts(receipts)
         if (rows.bindingUndoInvalidations.isNotEmpty()) dao.upsertBindingUndoInvalidations(rows.bindingUndoInvalidations)
     }
 

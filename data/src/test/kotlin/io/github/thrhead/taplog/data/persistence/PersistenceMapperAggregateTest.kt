@@ -157,7 +157,7 @@ class PersistenceMapperAggregateTest {
         reject(rows.copy(stateScopes = rows.stateScopes.map { it.copy(resetSequence = 1) }))
         reject(rows.copy(stateScopes = rows.stateScopes.map { it.copy(resetAt = 1) }))
         listOf(rows.undoReceipts.single().copy(operation = "create"), rows.undoReceipts.single().copy(beforeImageJson = "{}"),
-            rows.undoReceipts.single().copy(consumed = true), rows.undoReceipts.single().copy(invalidationReason = "reason"),
+            rows.undoReceipts.single().copy(operation = " ", beforeImageJson = "{}"), rows.undoReceipts.single().copy(invalidationReason = "reason"),
             rows.undoReceipts.single().copy(stateGroupId = null), rows.undoReceipts.single().copy(targetScopeKey = null),
             rows.undoReceipts.single().copy(expectedScopeGeneration = null))
             .forEach { reject(rows.copy(undoReceipts = listOf(it))) }
