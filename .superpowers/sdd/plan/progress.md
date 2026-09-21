@@ -80,3 +80,5 @@ Task 29: complete (JVM failure/concurrency contract coverage added; 20 attempts 
 Task 29a: complete (explicit stale UndoReceipt Android-boundary regression added; Android-test source compiles; device execution deferred: no connected devices)
 Task 30: complete (Room rollback/concurrency coverage added; Android-test source compiles; device execution deferred: no connected devices)
 Task 31: complete (existing `:core:test` suite passed; core contracts unchanged)
+Task 32: complete (v1 database, empty production migration matrix, export, and fail-closed version behavior verified)
+Task 33: complete (schema export checked in; quickstart documents v1, empty matrix, and future migration ownership)

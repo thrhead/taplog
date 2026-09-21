@@ -6,6 +6,7 @@
 - No network, account, UI, parser, NFC, Widget, or Quick Settings service is required.
 - The `:data` Android library is included and depends only on `:core`; the initial database schema is v1.
 - The checked-in Room schema export is `data/schemas/io.github.thrhead.taplog.data.persistence.TapLogDatabase/1.json`; this feature registers no production upgrade edge.
+- Future v2+ schema changes must add an explicit, reviewed production migration edge and a new exported schema; no migration is inferred or destructive fallback permitted.
 
 ## Commands
 
