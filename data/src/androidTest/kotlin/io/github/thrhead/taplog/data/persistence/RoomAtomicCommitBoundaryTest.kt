@@ -13,6 +13,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
+import java.util.concurrent.Executors
 
 /** US1 storage integration only; these tests never invoke the pending atomic commit adapter. */
 @RunWith(AndroidJUnit4::class)
@@ -46,6 +47,36 @@ class RoomAtomicCommitBoundaryTest {
         })
         assertFalse(boundary.commit(CommitOperation(staleExpected, before)))
         assertEquals(advanced, boundary.read())
+    }
+
+    @Test
+    fun invalidCommitRollsBackAndLeavesThePreviousAggregateReadable() = withDatabase { database ->
+        val before = aggregate()
+        seed(database, before)
+        val boundary = RoomAtomicCommitBoundary(database)
+        val invalid = before.copy(nextSequence = Sequence(1))
+
+        assertFalse(boundary.commit(CommitOperation(before, invalid)))
+        assertEquals(before, boundary.read())
+    }
+
+    @Test
+    fun concurrentCommitsWithTheSameExpectedContextHaveOneWinner() = withDatabase { database ->
+        val before = aggregate()
+        seed(database, before)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val results = (0..1).map { index -> executor.submit<Boolean> {
+                RoomAtomicCommitBoundary(database).commit(
+                    CommitOperation(before, before.copy(generation = DatasetGeneration(8L + index))),
+                )
+            } }
+            assertEquals(1, results.count { it.get() })
+            assertTrue(RoomLocalPersistence(database).read().generation in
+                setOf(DatasetGeneration(8), DatasetGeneration(9)))
+        } finally {
+            executor.shutdownNow()
+        }
     }
 
     // Catches omitted initialization, duplicate metadata on open, or counter reset on reopen.
