@@ -77,3 +77,4 @@ Task 26: complete (Room deletion/reopen coverage added; Android test source comp
 Task 27: complete (dedicated Room atomic boundary added; JVM suite and Android-test compilation passed; device execution deferred: no connected devices)
 Task 28: complete (stale expected-state compare returns Boolean `false`; no core contract/global revision changes; review clean)
 Task 29: complete (JVM failure/concurrency contract coverage added; 20 attempts per operation family; full `:data:testDebugUnitTest` passed)
+Task 29a: complete (explicit stale UndoReceipt Android-boundary regression added; Android-test source compiles; device execution deferred: no connected devices)

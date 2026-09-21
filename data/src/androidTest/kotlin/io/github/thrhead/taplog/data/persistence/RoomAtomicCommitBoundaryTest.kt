@@ -31,6 +31,23 @@ class RoomAtomicCommitBoundaryTest {
         assertEquals(updated, boundary.read())
     }
 
+    @Test
+    fun staleUndoReceiptContextIsRejectedWithoutMutation() = withDatabase { database ->
+        val before = aggregate()
+        seed(database, before)
+        val boundary = RoomAtomicCommitBoundary(database)
+        val advanced = before.copy(undoReceipts = before.undoReceipts.mapValues { (_, receipt) ->
+            receipt.copy(eventRevision = Revision(receipt.eventRevision.value + 1))
+        })
+        assertTrue(boundary.commit(CommitOperation(before, advanced)))
+
+        val staleExpected = before.copy(undoReceipts = before.undoReceipts.mapValues { (_, receipt) ->
+            receipt.copy(eventRevision = Revision(receipt.eventRevision.value + 2))
+        })
+        assertFalse(boundary.commit(CommitOperation(staleExpected, before)))
+        assertEquals(advanced, boundary.read())
+    }
+
     // Catches omitted initialization, duplicate metadata on open, or counter reset on reopen.
     @Test
     fun singletonMetadataIsInitializedOnceAndPreservedByNormalIdentityHashReopen() = withName { name ->
