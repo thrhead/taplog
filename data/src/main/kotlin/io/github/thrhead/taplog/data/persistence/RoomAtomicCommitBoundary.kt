@@ -13,19 +13,24 @@ internal class RoomAtomicCommitBoundary(private val database: TapLogDatabase) : 
     override fun read(): DomainState = persistence.read()
 
     override fun commit(operation: CommitOperation): Boolean = try {
-        database.runInTransaction(Callable {
-            val dao = database.persistenceDao()
-            val current = persistence.readInTransaction(dao)
-            if (current != operation.expected) return@Callable false
+        database.runInTransaction(
+            Callable {
+                val dao = database.persistenceDao()
+                val current = persistence.readInTransaction(dao)
+                if (current != operation.expected) return@Callable false
 
-            when {
-                hasDeletionDiff(current, operation.state) -> persistence.writePermanentDeletion(operation.state, dao)
-                operation.lifecycleEffect != LifecycleEffect() ->
-                    persistence.writeLifecycleEffects(operation.state, dao)
-                else -> persistence.writeAggregate(operation.state, dao)
+                when {
+                    hasDeletionDiff(
+                        current,
+                        operation.state
+                    ) -> persistence.writePermanentDeletion(operation.state, dao)
+                    operation.lifecycleEffect != LifecycleEffect() ->
+                        persistence.writeLifecycleEffects(operation.state, dao)
+                    else -> persistence.writeAggregate(operation.state, dao)
+                }
+                true
             }
-            true
-        })
+        )
     } catch (_: Exception) {
         false
     }

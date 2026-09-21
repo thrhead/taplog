@@ -33,6 +33,9 @@ internal abstract class TapLogDatabase : RoomDatabase() {
         /** V1 has no production upgrade or downgrade edges. Unknown versions fail closed. */
         val productionMigrations: List<Migration> = emptyList()
 
+        // Room accepts migrations only as varargs; the owned registry is deliberately copied
+        // at this API boundary and remains the single source for supported upgrade edges.
+        @Suppress("SpreadOperator")
         fun builder(context: Context, name: String): Builder<TapLogDatabase> =
             Room.databaseBuilder(context.applicationContext, TapLogDatabase::class.java, name)
                 .addMigrations(*productionMigrations.toTypedArray())

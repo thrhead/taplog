@@ -8,6 +8,9 @@ internal interface LocalPersistence {
 }
 
 internal class RoomLocalPersistence(private val database: TapLogDatabase) : LocalPersistence {
+    // Room, SQLite, and generated DAO failures do not share a stable exception subtype.
+    // Translate every non-persistence failure at this boundary into the public taxonomy.
+    @Suppress("TooGenericExceptionCaught")
     override fun read(): DomainState {
         // Room opens lazily. Keep open failures distinct from transaction/query failures.
         try {
@@ -19,10 +22,12 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         }
 
         val rows = try {
-            database.runInTransaction(Callable {
-                val dao = database.persistenceDao()
-                readStoredRows(dao)
-            })
+            database.runInTransaction(
+                Callable {
+                    val dao = database.persistenceDao()
+                    readStoredRows(dao)
+                }
+            )
         } catch (failure: PersistenceFailure) {
             throw failure
         } catch (failure: Exception) {
@@ -83,8 +88,10 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
     internal fun writeStateGroupsAndScopes(state: DomainState, dao: PersistenceDao) {
         val rows = PersistenceMapper.toRows(state)
         dao.readStateScopes().forEach {
-            PersistenceMapper.requireInvariant(it.resetSequence == null && it.resetAt == null,
-                "State reset metadata is not represented by DomainState")
+            PersistenceMapper.requireInvariant(
+                it.resetSequence == null && it.resetAt == null,
+                "State reset metadata is not represented by DomainState"
+            )
         }
         if (rows.stateGroups.isNotEmpty()) dao.upsertStateGroups(rows.stateGroups)
         if (rows.stateScopes.isNotEmpty()) dao.upsertStateScopes(rows.stateScopes)
@@ -105,10 +112,18 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
             PersistenceMapper.requireInvariant(dao.readRecord(row.recordId) != null, "Missing stored referenced Record")
             PersistenceMapper.requireInvariant(dao.readTarget(row.targetId) != null, "Missing stored referenced Target")
             dao.readRecordTarget(row.recordId, row.targetId)?.let { stored ->
-                PersistenceMapper.requireInvariant(stored.revision >= 0, "Stored Relationship revision must be nonnegative")
-                PersistenceMapper.requireInvariant(row.revision >= stored.revision, "Relationship revision must not decrease")
-                PersistenceMapper.requireInvariant(row.linked == stored.linked || row.revision > stored.revision,
-                    "Relationship lifecycle change requires a higher revision")
+                PersistenceMapper.requireInvariant(
+                    stored.revision >= 0,
+                    "Stored Relationship revision must be nonnegative"
+                )
+                PersistenceMapper.requireInvariant(
+                    row.revision >= stored.revision,
+                    "Relationship revision must not decrease"
+                )
+                PersistenceMapper.requireInvariant(
+                    row.linked == stored.linked || row.revision > stored.revision,
+                    "Relationship lifecycle change requires a higher revision"
+                )
             }
         }
         if (rows.recordTargets.isNotEmpty()) dao.upsertRecordTargets(rows.recordTargets)
@@ -138,19 +153,37 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         val suppliedInvalidations = rows.bindingUndoInvalidations.groupBy { it.bindingId }
         rows.bindings.forEach { row ->
             PersistenceMapper.requireInvariant(row.recordId in recordIds, "Missing stored referenced Record")
-            PersistenceMapper.requireInvariant(row.targetId == null || row.targetId in targetIds, "Missing stored referenced Target")
+            PersistenceMapper.requireInvariant(
+                row.targetId == null || row.targetId in targetIds,
+                "Missing stored referenced Target"
+            )
             storedBindings[row.bindingId]?.let { stored ->
-                PersistenceMapper.requireInvariant(row.recordId == stored.recordId && row.targetId == stored.targetId,
-                    "Binding scope must not change")
-                PersistenceMapper.requireInvariant(row.revision >= stored.revision, "Binding revision must not decrease")
-                val sameInvalidations = suppliedInvalidations[row.bindingId].orEmpty().associate { it.receiptId to it.reason } ==
-                    storedInvalidations[row.bindingId].orEmpty().associate { it.receiptId to it.reason }
-                PersistenceMapper.requireInvariant(row.revision > stored.revision ||
-                    (row == stored && sameInvalidations), "Binding change requires a higher revision")
+                PersistenceMapper.requireInvariant(
+                    row.recordId == stored.recordId && row.targetId == stored.targetId,
+                    "Binding scope must not change"
+                )
+                PersistenceMapper.requireInvariant(
+                    row.revision >= stored.revision,
+                    "Binding revision must not decrease"
+                )
+                val supplied = suppliedInvalidations[row.bindingId].orEmpty().associate { it.receiptId to it.reason }
+                val storedInvalidationContext = storedInvalidations[row.bindingId]
+                    .orEmpty()
+                    .associate { it.receiptId to it.reason }
+                val sameInvalidations = supplied == storedInvalidationContext
+                PersistenceMapper.requireInvariant(
+                    row.revision > stored.revision ||
+                        (row == stored && sameInvalidations),
+                    "Binding change requires a higher revision"
+                )
             }
         }
         if (rows.bindings.isNotEmpty()) dao.upsertBindings(rows.bindings)
-        if (rows.bindingUndoInvalidations.isNotEmpty()) dao.upsertBindingUndoInvalidations(rows.bindingUndoInvalidations)
+        if (rows.bindingUndoInvalidations.isNotEmpty()) {
+            dao.upsertBindingUndoInvalidations(
+                rows.bindingUndoInvalidations
+            )
+        }
     }
 
     /**
@@ -160,6 +193,9 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
      * fields when updating the core context. Omitted rows remain retained.
      * Revision guards validate monotonic metadata, not expected-context CAS.
      */
+    // Receipt, binding, and invalidation guards are one atomic validation phase; its
+    // independent branches mirror the adapter contract and must remain co-located.
+    @Suppress("CyclomaticComplexMethod")
     internal fun writeUndoMetadata(state: DomainState, dao: PersistenceDao) {
         val rows = PersistenceMapper.toRows(state)
         val storedRows = PersistenceRows(
@@ -172,21 +208,31 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         val storedReceipts = storedRows.undoReceipts.associateBy { it.receiptId }
         val receipts = rows.undoReceipts.map { row ->
             storedReceipts[row.receiptId]?.let { stored ->
-                row.copy(operation = stored.operation, beforeImageJson = stored.beforeImageJson,
-                    consumed = stored.consumed, invalidationReason = stored.invalidationReason)
+                row.copy(
+                    operation = stored.operation, beforeImageJson = stored.beforeImageJson,
+                    consumed = stored.consumed, invalidationReason = stored.invalidationReason
+                )
             } ?: row
         }
         receipts.forEach { row ->
             storedReceipts[row.receiptId]?.let { stored ->
-                PersistenceMapper.requireInvariant(row.eventId == stored.eventId &&
-                    row.stateGroupId == stored.stateGroupId && row.targetScopeKey == stored.targetScopeKey,
-                    "Undo receipt identity and scope must not change")
-                PersistenceMapper.requireInvariant(row.expectedEventRevision >= stored.expectedEventRevision &&
-                    row.expectedDatasetGeneration >= stored.expectedDatasetGeneration &&
-                    (row.expectedScopeGeneration == null || row.expectedScopeGeneration >= stored.expectedScopeGeneration!!),
-                    "Undo expected revisions and generations must not decrease")
-                PersistenceMapper.requireInvariant(row == stored || row.expectedEventRevision > stored.expectedEventRevision,
-                    "Undo receipt change requires a higher Event revision")
+                PersistenceMapper.requireInvariant(
+                    row.eventId == stored.eventId &&
+                        row.stateGroupId == stored.stateGroupId && row.targetScopeKey == stored.targetScopeKey,
+                    "Undo receipt identity and scope must not change"
+                )
+                val scopeGenerationDoesNotDecrease = row.expectedScopeGeneration == null ||
+                    row.expectedScopeGeneration >= stored.expectedScopeGeneration!!
+                PersistenceMapper.requireInvariant(
+                    row.expectedEventRevision >= stored.expectedEventRevision &&
+                        row.expectedDatasetGeneration >= stored.expectedDatasetGeneration &&
+                        scopeGenerationDoesNotDecrease,
+                    "Undo expected revisions and generations must not decrease"
+                )
+                PersistenceMapper.requireInvariant(
+                    row == stored || row.expectedEventRevision > stored.expectedEventRevision,
+                    "Undo receipt change requires a higher Event revision"
+                )
             }
         }
         val storedBindings = storedRows.bindings.associateBy { it.bindingId }
@@ -196,14 +242,25 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
             val binding = suppliedBindings.getValue(row.bindingId)
             val stored = storedBindings[row.bindingId]
                 ?: throw MappingFailure("Undo invalidation references a missing stored Binding")
-            PersistenceMapper.requireInvariant(binding.recordId == stored.recordId && binding.targetId == stored.targetId,
-                "Binding scope must not change")
-            PersistenceMapper.requireInvariant(binding.revision >= stored.revision, "Binding revision must not decrease")
-            PersistenceMapper.requireInvariant(storedInvalidations[row.bindingId to row.receiptId] == row || binding.revision > stored.revision,
-                "Undo invalidation change requires a higher Binding revision")
+            PersistenceMapper.requireInvariant(
+                binding.recordId == stored.recordId && binding.targetId == stored.targetId,
+                "Binding scope must not change"
+            )
+            PersistenceMapper.requireInvariant(
+                binding.revision >= stored.revision,
+                "Binding revision must not decrease"
+            )
+            PersistenceMapper.requireInvariant(
+                storedInvalidations[row.bindingId to row.receiptId] == row || binding.revision > stored.revision,
+                "Undo invalidation change requires a higher Binding revision"
+            )
         }
         if (receipts.isNotEmpty()) dao.upsertUndoReceipts(receipts)
-        if (rows.bindingUndoInvalidations.isNotEmpty()) dao.upsertBindingUndoInvalidations(rows.bindingUndoInvalidations)
+        if (rows.bindingUndoInvalidations.isNotEmpty()) {
+            dao.upsertBindingUndoInvalidations(
+                rows.bindingUndoInvalidations
+            )
+        }
     }
 
     /**
@@ -254,13 +311,20 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
             .filterKeys { it !in suppliedInvalidations }
             .values.toList()
         if (deletedInvalidations.isNotEmpty()) dao.deleteBindingUndoInvalidations(deletedInvalidations)
-        val deletedReceipts = storedReceipts.values.filter { it.receiptId !in rows.undoReceipts.map { row -> row.receiptId }.toSet() }
+        val deletedReceipts = storedReceipts.values.filter {
+            it.receiptId !in rows.undoReceipts.map { row -> row.receiptId }.toSet()
+        }
         if (deletedReceipts.isNotEmpty()) dao.deleteUndoReceipts(deletedReceipts.map { it.receiptId })
         val deletedEvents = storedEvents.keys - rows.events.map { it.eventId }.toSet()
         if (deletedEvents.isNotEmpty()) dao.deleteEvents(deletedEvents.toList())
         if (deletedBindings.isNotEmpty()) dao.deleteBindings(deletedBindings.map { storedBindings.getValue(it) })
-        val deletedRelationships = storedRelationships.keys - rows.recordTargets.map { it.recordId to it.targetId }.toSet()
-        if (deletedRelationships.isNotEmpty()) dao.deleteRecordTargets(deletedRelationships.map { storedRelationships.getValue(it) })
+        val suppliedRelationships = rows.recordTargets.map { it.recordId to it.targetId }.toSet()
+        val deletedRelationships = storedRelationships.keys - suppliedRelationships
+        if (deletedRelationships.isNotEmpty()) {
+            dao.deleteRecordTargets(
+                deletedRelationships.map { storedRelationships.getValue(it) }
+            )
+        }
         val deletedRecords = storedRecords.keys - rows.records.map { it.recordId }.toSet()
         if (deletedRecords.isNotEmpty()) dao.deleteRecords(deletedRecords.map { storedRecords.getValue(it) })
 
@@ -274,14 +338,30 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
     }
 
     private fun validatePermanentDeletion(rows: PersistenceRows, stored: PersistenceRows) {
-        PersistenceMapper.requireInvariant(rows.targets == stored.targets, "Permanent deletion must retain Target definitions")
-        PersistenceMapper.requireInvariant(rows.stateGroups == stored.stateGroups, "Permanent deletion must retain State Groups")
-        PersistenceMapper.requireInvariant(rows.stateScopes == stored.stateScopes, "Permanent deletion must retain State scopes")
-        PersistenceMapper.requireInvariant(rows.metadata == stored.metadata, "Permanent deletion must retain Dataset context")
+        PersistenceMapper.requireInvariant(
+            rows.targets == stored.targets,
+            "Permanent deletion must retain Target definitions"
+        )
+        PersistenceMapper.requireInvariant(
+            rows.stateGroups == stored.stateGroups,
+            "Permanent deletion must retain State Groups"
+        )
+        PersistenceMapper.requireInvariant(
+            rows.stateScopes == stored.stateScopes,
+            "Permanent deletion must retain State scopes"
+        )
+        PersistenceMapper.requireInvariant(
+            rows.metadata == stored.metadata,
+            "Permanent deletion must retain Dataset context"
+        )
         fun retainedOnly(current: List<Any>, previous: List<Any>, key: (Any) -> Any) {
             val previousByKey = previous.associateBy(key)
-            current.forEach { row -> PersistenceMapper.requireInvariant(previousByKey[key(row)] == row,
-                "Permanent deletion may only omit existing rows") }
+            current.forEach { row ->
+                PersistenceMapper.requireInvariant(
+                    previousByKey[key(row)] == row,
+                    "Permanent deletion may only omit existing rows"
+                )
+            }
         }
         retainedOnly(rows.records, stored.records) { (it as RecordEntity).recordId }
         retainedOnly(rows.recordTargets, stored.recordTargets) { (it as RecordTargetEntity).recordId to it.targetId }
@@ -300,148 +380,253 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         undoReceipts = dao.readUndoReceipts(), metadata = dao.readMetadataRows(),
     )
 
+    // Detekt includes the scoped validators below in the enclosing score. They intentionally
+    // keep all preflight branches together so no database write can precede a late guard.
+    @Suppress("CyclomaticComplexMethod")
     private fun validateLifecycleChanges(rows: PersistenceRows, storedRows: PersistenceRows) {
         val storedMetadata = storedRows.metadata.single()
         val metadata = rows.metadata.single()
-        PersistenceMapper.requireInvariant(metadata.singletonKey == storedMetadata.singletonKey &&
-            metadata.schemaVersion == storedMetadata.schemaVersion, "Dataset metadata identity must not change")
-        PersistenceMapper.requireInvariant(metadata.datasetGeneration >= storedMetadata.datasetGeneration &&
-            metadata.nextSequence >= storedMetadata.nextSequence, "Dataset context must not decrease")
+        PersistenceMapper.requireInvariant(
+            metadata.singletonKey == storedMetadata.singletonKey &&
+                metadata.schemaVersion == storedMetadata.schemaVersion,
+            "Dataset metadata identity must not change"
+        )
+        PersistenceMapper.requireInvariant(
+            metadata.datasetGeneration >= storedMetadata.datasetGeneration &&
+                metadata.nextSequence >= storedMetadata.nextSequence,
+            "Dataset context must not decrease"
+        )
 
         fun validateRecords() {
             val stored = storedRows.records.associateBy { it.recordId }
-            rows.records.forEach { row -> stored[row.recordId]?.let { previous ->
-                PersistenceMapper.requireInvariant(row.revision >= previous.revision,
-                    "Record revision must not decrease")
-                PersistenceMapper.requireInvariant(row == previous || row.revision > previous.revision,
-                    "Record change requires a higher revision")
-                if (row != previous) {
-                    PersistenceMapper.requireInvariant(row.copy(lifecycle = previous.lifecycle,
-                        revision = previous.revision) == previous,
-                        "Lifecycle persistence must not edit Record definition fields")
+            rows.records.forEach { row ->
+                stored[row.recordId]?.let { previous ->
+                    PersistenceMapper.requireInvariant(
+                        row.revision >= previous.revision,
+                        "Record revision must not decrease"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row == previous || row.revision > previous.revision,
+                        "Record change requires a higher revision"
+                    )
+                    if (row != previous) {
+                        PersistenceMapper.requireInvariant(
+                            row.copy(
+                                lifecycle = previous.lifecycle,
+                                revision = previous.revision
+                            ) == previous,
+                            "Lifecycle persistence must not edit Record definition fields"
+                        )
+                    }
                 }
-            } }
+            }
         }
         fun validateTargets() {
             val stored = storedRows.targets.associateBy { it.targetId }
-            rows.targets.forEach { row -> stored[row.targetId]?.let { previous ->
-                PersistenceMapper.requireInvariant(row.revision >= previous.revision,
-                    "Target revision must not decrease")
-                PersistenceMapper.requireInvariant(row == previous || row.revision > previous.revision,
-                    "Target change requires a higher revision")
-                if (row != previous) {
-                    PersistenceMapper.requireInvariant(row.copy(lifecycle = previous.lifecycle,
-                        revision = previous.revision) == previous,
-                        "Lifecycle persistence must not edit Target definition fields")
+            rows.targets.forEach { row ->
+                stored[row.targetId]?.let { previous ->
+                    PersistenceMapper.requireInvariant(
+                        row.revision >= previous.revision,
+                        "Target revision must not decrease"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row == previous || row.revision > previous.revision,
+                        "Target change requires a higher revision"
+                    )
+                    if (row != previous) {
+                        PersistenceMapper.requireInvariant(
+                            row.copy(
+                                lifecycle = previous.lifecycle,
+                                revision = previous.revision
+                            ) == previous,
+                            "Lifecycle persistence must not edit Target definition fields"
+                        )
+                    }
                 }
-            } }
+            }
         }
         fun validateStateGroups() {
             val stored = storedRows.stateGroups.associateBy { it.stateGroupId }
-            rows.stateGroups.forEach { row -> stored[row.stateGroupId]?.let { previous ->
-                PersistenceMapper.requireInvariant(row.revision >= previous.revision,
-                    "State Group revision must not decrease")
-                PersistenceMapper.requireInvariant(row == previous || row.revision > previous.revision,
-                    "State Group change requires a higher revision")
-                PersistenceMapper.requireInvariant(row == previous,
-                    "Lifecycle persistence must not edit State Group definitions")
-            } }
+            rows.stateGroups.forEach { row ->
+                stored[row.stateGroupId]?.let { previous ->
+                    PersistenceMapper.requireInvariant(
+                        row.revision >= previous.revision,
+                        "State Group revision must not decrease"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row == previous || row.revision > previous.revision,
+                        "State Group change requires a higher revision"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row == previous,
+                        "Lifecycle persistence must not edit State Group definitions"
+                    )
+                }
+            }
         }
         fun validateRelationships() {
             val stored = storedRows.recordTargets.associateBy { it.recordId to it.targetId }
-            rows.recordTargets.forEach { row -> stored[row.recordId to row.targetId]?.let { previous ->
-                PersistenceMapper.requireInvariant(row.revision >= previous.revision,
-                    "Relationship revision must not decrease")
-                PersistenceMapper.requireInvariant(row == previous || row.revision > previous.revision,
-                    "Relationship change requires a higher revision")
-            } }
+            rows.recordTargets.forEach { row ->
+                stored[row.recordId to row.targetId]?.let { previous ->
+                    PersistenceMapper.requireInvariant(
+                        row.revision >= previous.revision,
+                        "Relationship revision must not decrease"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row == previous || row.revision > previous.revision,
+                        "Relationship change requires a higher revision"
+                    )
+                }
+            }
         }
         fun validateEvents() {
             val stored = storedRows.events.associateBy { it.eventId }
-            rows.events.forEach { row -> stored[row.eventId]?.let { previous ->
-                PersistenceMapper.requireInvariant(row.recordId == previous.recordId && row.targetId == previous.targetId &&
-                    row.targetScopeKey == previous.targetScopeKey && row.behavior == previous.behavior &&
-                    row.createdAt == previous.createdAt && row.sequence == previous.sequence && row.source == previous.source,
-                    "Event identity and scope must not change")
-                PersistenceMapper.requireInvariant(row.snapshotRecordName == previous.snapshotRecordName &&
-                    row.snapshotRecordIcon == previous.snapshotRecordIcon &&
-                    row.snapshotTargetName == previous.snapshotTargetName &&
-                    row.snapshotTargetIcon == previous.snapshotTargetIcon &&
-                    row.snapshotBehavior == previous.snapshotBehavior && row.snapshotUnit == previous.snapshotUnit,
-                    "Historical Event snapshots must not change")
-                PersistenceMapper.requireInvariant(row.revision >= previous.revision,
-                    "Event revision must not decrease")
-                PersistenceMapper.requireInvariant(row == previous || row.revision > previous.revision,
-                    "Event change requires a higher revision")
-                if (row != previous) {
-                    PersistenceMapper.requireInvariant(previous.behavior == "DURATION" &&
-                        previous.durationStatus == "OPEN" && row.durationStatus == "INCOMPLETE",
-                        "Lifecycle Event changes must terminate an OPEN Duration")
-                    PersistenceMapper.requireInvariant(row.copy(updatedAt = previous.updatedAt,
-                        revision = previous.revision, durationStatus = previous.durationStatus,
-                        durationIncompleteReason = previous.durationIncompleteReason) == previous,
-                        "Lifecycle Duration termination must preserve all other Event fields")
+            rows.events.forEach { row ->
+                stored[row.eventId]?.let { previous ->
+                    PersistenceMapper.requireInvariant(
+                        row.recordId == previous.recordId &&
+                            row.targetId == previous.targetId &&
+                            row.targetScopeKey == previous.targetScopeKey &&
+                            row.behavior == previous.behavior &&
+                            row.createdAt == previous.createdAt &&
+                            row.sequence == previous.sequence &&
+                            row.source == previous.source,
+                        "Event identity and scope must not change"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row.snapshotRecordName == previous.snapshotRecordName &&
+                            row.snapshotRecordIcon == previous.snapshotRecordIcon &&
+                            row.snapshotTargetName == previous.snapshotTargetName &&
+                            row.snapshotTargetIcon == previous.snapshotTargetIcon &&
+                            row.snapshotBehavior == previous.snapshotBehavior &&
+                            row.snapshotUnit == previous.snapshotUnit,
+                        "Historical Event snapshots must not change"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row.revision >= previous.revision,
+                        "Event revision must not decrease"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row == previous || row.revision > previous.revision,
+                        "Event change requires a higher revision"
+                    )
+                    if (row != previous) {
+                        PersistenceMapper.requireInvariant(
+                            previous.behavior == "DURATION" &&
+                                previous.durationStatus == "OPEN" && row.durationStatus == "INCOMPLETE",
+                            "Lifecycle Event changes must terminate an OPEN Duration"
+                        )
+                        PersistenceMapper.requireInvariant(
+                            row.copy(
+                                updatedAt = previous.updatedAt,
+                                revision = previous.revision, durationStatus = previous.durationStatus,
+                                durationIncompleteReason = previous.durationIncompleteReason
+                            ) == previous,
+                            "Lifecycle Duration termination must preserve all other Event fields"
+                        )
+                    }
+                    if (previous.durationStatus != null && previous.durationStatus != "OPEN") {
+                        PersistenceMapper.requireInvariant(
+                            row.durationStatus != "OPEN",
+                            "Terminal Duration Events must not reopen"
+                        )
+                    }
                 }
-                if (previous.durationStatus != null && previous.durationStatus != "OPEN") {
-                    PersistenceMapper.requireInvariant(row.durationStatus != "OPEN",
-                        "Terminal Duration Events must not reopen")
-                }
-            } }
+            }
         }
         fun validateStateScopes() {
             val stored = storedRows.stateScopes.associateBy { it.stateGroupId to it.targetScopeKey }
-            rows.stateScopes.forEach { row -> stored[row.stateGroupId to row.targetScopeKey]?.let { previous ->
-                PersistenceMapper.requireInvariant(row.generation >= previous.generation,
-                    "State scope generation must not decrease")
-                PersistenceMapper.requireInvariant(row == previous || row.generation > previous.generation,
-                    "State scope change requires a higher generation")
-                if (row != previous) {
-                    PersistenceMapper.requireInvariant(row.currentRecordId == null,
-                        "Lifecycle State reset must clear the current Record")
+            rows.stateScopes.forEach { row ->
+                stored[row.stateGroupId to row.targetScopeKey]?.let { previous ->
+                    PersistenceMapper.requireInvariant(
+                        row.generation >= previous.generation,
+                        "State scope generation must not decrease"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row == previous || row.generation > previous.generation,
+                        "State scope change requires a higher generation"
+                    )
+                    if (row != previous) {
+                        PersistenceMapper.requireInvariant(
+                            row.currentRecordId == null,
+                            "Lifecycle State reset must clear the current Record"
+                        )
+                    }
                 }
-            } }
+            }
         }
         fun validateBindings() {
             val stored = storedRows.bindings.associateBy { it.bindingId }
             val storedInvalidations = storedRows.bindingUndoInvalidations.groupBy { it.bindingId }
             val suppliedInvalidations = rows.bindingUndoInvalidations.groupBy { it.bindingId }
-            rows.bindings.forEach { row -> stored[row.bindingId]?.let { previous ->
-                PersistenceMapper.requireInvariant(row.recordId == previous.recordId && row.targetId == previous.targetId,
-                    "Binding scope must not change")
-                PersistenceMapper.requireInvariant(row.snapshotRecordName == previous.snapshotRecordName &&
-                    row.snapshotRecordIcon == previous.snapshotRecordIcon &&
-                    row.snapshotTargetName == previous.snapshotTargetName &&
-                    row.snapshotTargetIcon == previous.snapshotTargetIcon,
-                    "Lifecycle Binding snapshots must not change")
-                if (previous.status == "ORPHANED") {
-                    PersistenceMapper.requireInvariant(row.status != "ACTIVE",
-                        "Lifecycle persistence must not reactivate orphaned Bindings")
+            rows.bindings.forEach { row ->
+                stored[row.bindingId]?.let { previous ->
+                    PersistenceMapper.requireInvariant(
+                        row.recordId == previous.recordId && row.targetId == previous.targetId,
+                        "Binding scope must not change"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row.snapshotRecordName == previous.snapshotRecordName &&
+                            row.snapshotRecordIcon == previous.snapshotRecordIcon &&
+                            row.snapshotTargetName == previous.snapshotTargetName &&
+                            row.snapshotTargetIcon == previous.snapshotTargetIcon,
+                        "Lifecycle Binding snapshots must not change"
+                    )
+                    if (previous.status == "ORPHANED") {
+                        PersistenceMapper.requireInvariant(
+                            row.status != "ACTIVE",
+                            "Lifecycle persistence must not reactivate orphaned Bindings"
+                        )
+                    }
+                    PersistenceMapper.requireInvariant(
+                        row.revision >= previous.revision,
+                        "Binding revision must not decrease"
+                    )
+                    val supplied = suppliedInvalidations[row.bindingId]
+                        .orEmpty()
+                        .associate { it.receiptId to it.reason }
+                    val stored = storedInvalidations[row.bindingId]
+                        .orEmpty()
+                        .associate { it.receiptId to it.reason }
+                    val sameInvalidations = supplied == stored
+                    PersistenceMapper.requireInvariant(
+                        row.revision > previous.revision ||
+                            (row == previous && sameInvalidations),
+                        "Binding change requires a higher revision"
+                    )
                 }
-                PersistenceMapper.requireInvariant(row.revision >= previous.revision,
-                    "Binding revision must not decrease")
-                val sameInvalidations = suppliedInvalidations[row.bindingId].orEmpty().associate { it.receiptId to it.reason } ==
-                    storedInvalidations[row.bindingId].orEmpty().associate { it.receiptId to it.reason }
-                PersistenceMapper.requireInvariant(row.revision > previous.revision ||
-                    (row == previous && sameInvalidations), "Binding change requires a higher revision")
-            } }
+            }
         }
         fun validateUndo() {
             val stored = storedRows.undoReceipts.associateBy { it.receiptId }
-            rows.undoReceipts.forEach { row -> stored[row.receiptId]?.let { previous ->
-                PersistenceMapper.requireInvariant(row.eventId == previous.eventId &&
-                    row.stateGroupId == previous.stateGroupId && row.targetScopeKey == previous.targetScopeKey,
-                    "Undo receipt identity and scope must not change")
-                PersistenceMapper.requireInvariant(row.expectedEventRevision >= previous.expectedEventRevision &&
-                    row.expectedDatasetGeneration >= previous.expectedDatasetGeneration &&
-                    (row.expectedScopeGeneration == null ||
-                        row.expectedScopeGeneration >= previous.expectedScopeGeneration!!),
-                    "Undo expected revisions and generations must not decrease")
-                val coreProjection = row.copy(operation = previous.operation,
-                    beforeImageJson = previous.beforeImageJson, consumed = previous.consumed,
-                    invalidationReason = previous.invalidationReason)
-                PersistenceMapper.requireInvariant(coreProjection == previous,
-                    "Lifecycle persistence must preserve Undo receipt context")
-            } }
+            rows.undoReceipts.forEach { row ->
+                stored[row.receiptId]?.let { previous ->
+                    PersistenceMapper.requireInvariant(
+                        row.eventId == previous.eventId &&
+                            row.stateGroupId == previous.stateGroupId && row.targetScopeKey == previous.targetScopeKey,
+                        "Undo receipt identity and scope must not change"
+                    )
+                    PersistenceMapper.requireInvariant(
+                        row.expectedEventRevision >= previous.expectedEventRevision &&
+                            row.expectedDatasetGeneration >= previous.expectedDatasetGeneration &&
+                            (
+                                row.expectedScopeGeneration == null ||
+                                    row.expectedScopeGeneration >= previous.expectedScopeGeneration!!
+                                ),
+                        "Undo expected revisions and generations must not decrease"
+                    )
+                    val coreProjection = row.copy(
+                        operation = previous.operation,
+                        beforeImageJson = previous.beforeImageJson,
+                        consumed = previous.consumed,
+                        invalidationReason = previous.invalidationReason
+                    )
+                    PersistenceMapper.requireInvariant(
+                        coreProjection == previous,
+                        "Lifecycle persistence must preserve Undo receipt context"
+                    )
+                }
+            }
         }
 
         validateRecords()
@@ -453,5 +638,4 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         validateBindings()
         validateUndo()
     }
-
 }
