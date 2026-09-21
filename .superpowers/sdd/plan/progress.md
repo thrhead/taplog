@@ -76,3 +76,4 @@ Task 25: complete (contract tests added; focused and full `:data:testDebugUnitTe
 Task 26: complete (Room deletion/reopen coverage added; Android test source compiles; connected test deferred: no connected devices)
 Task 27: complete (dedicated Room atomic boundary added; JVM suite and Android-test compilation passed; device execution deferred: no connected devices)
 Task 28: complete (stale expected-state compare returns Boolean `false`; no core contract/global revision changes; review clean)
+Task 29: complete (JVM failure/concurrency contract coverage added; 20 attempts per operation family; full `:data:testDebugUnitTest` passed)
