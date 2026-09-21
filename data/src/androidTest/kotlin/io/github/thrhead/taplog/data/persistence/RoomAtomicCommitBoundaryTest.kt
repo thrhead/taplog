@@ -79,6 +79,38 @@ class RoomAtomicCommitBoundaryTest {
         }
     }
 
+    @Test
+    fun schemaInvariantsEnforceKeysIndexesOpenDurationUniquenessAndMonotonicContext() = withDatabase { database ->
+        val state = aggregate()
+        seed(database, state)
+        val dao = database.persistenceDao()
+        assertThrows(SQLiteConstraintException::class.java) {
+            database.openHelper.writableDatabase.execSQL(
+                "INSERT INTO records(recordId,name,behavior,lifecycle,revision,hasEvents) " +
+                    "VALUES ('moment','duplicate','MOMENT','ACTIVE',1,1)",
+            )
+        }
+        database.openHelper.writableDatabase.query("PRAGMA index_list(events)").use { cursor ->
+            val names = buildList {
+                val nameColumn = cursor.getColumnIndexOrThrow("name")
+                while (cursor.moveToNext()) add(cursor.getString(nameColumn))
+            }
+            assertTrue(names.contains("index_events_open_duration_scope"))
+            assertTrue(names.contains("index_events_recordId_targetId_occurredAt_sequence"))
+        }
+        val open = dao.readOpenDuration("duration", "no-target")!!
+        assertThrows(SQLiteConstraintException::class.java) {
+            dao.upsertEvents(listOf(open.copy(eventId = "competing-open", sequence = open.sequence + 100)))
+        }
+        assertThrows(MappingFailure::class.java) {
+            database.runInTransaction {
+                RoomLocalPersistence(database).writeLifecycleEffects(
+                    state.copy(generation = DatasetGeneration(state.generation.value - 1)), dao,
+                )
+            }
+        }
+    }
+
     // Catches omitted initialization, duplicate metadata on open, or counter reset on reopen.
     @Test
     fun singletonMetadataIsInitializedOnceAndPreservedByNormalIdentityHashReopen() = withName { name ->

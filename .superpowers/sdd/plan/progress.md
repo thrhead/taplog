@@ -85,3 +85,4 @@ Task 33: complete (schema export checked in; quickstart documents v1, empty matr
 Task 34: complete (dedicated fresh-v1 migration/open coverage added; Android-test source compiles)
 Task 35: complete (dedicated unsupported-version/corrupt-row/no-repair coverage added; Android-test source compiles)
 Task 36: complete (dependency-boundary tests added; focused test passed)
+Task 37: complete (Room key/index/OPEN-Duration/monotonicity coverage added; Android-test source compiles)
