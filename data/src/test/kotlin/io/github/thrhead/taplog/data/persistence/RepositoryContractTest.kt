@@ -29,16 +29,59 @@ import io.github.thrhead.taplog.core.domain.TargetId
 import io.github.thrhead.taplog.core.domain.UndoInvalidation
 import io.github.thrhead.taplog.core.domain.UnitName
 import io.github.thrhead.taplog.core.engine.CommitOperation
+import io.github.thrhead.taplog.core.engine.DeletionScope
 import io.github.thrhead.taplog.core.engine.DomainState
+import io.github.thrhead.taplog.core.engine.EngineResult
+import io.github.thrhead.taplog.core.engine.EventEngine
 import io.github.thrhead.taplog.core.engine.ScopeContext
 import io.github.thrhead.taplog.core.engine.StateScope
 import io.github.thrhead.taplog.core.engine.UndoReceipt
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RepositoryContractTest {
+    @Test
+    fun coreConfirmedPairDeletionPersistsOnlyTheSelectedScopeAndUndoHistory() {
+        val boundary = InMemoryLocalPersistence(aggregate())
+        val engine = EventEngine(boundary, TestClock)
+        val impact = DeletionScope.preview(boundary.read(), RecordId("counter"), TargetId("alpha"))
+
+        assertEquals(listOf(EventId("counter-alpha")), impact.eventIds)
+        assertTrue(engine.deleteScope(RecordId("counter"), TargetId("alpha")) is EngineResult.NeedsConfirmation)
+        assertTrue(engine.deleteScope(RecordId("counter"), TargetId("alpha"), confirmed = true) is EngineResult.Applied)
+
+        val actual = boundary.read()
+        assertEquals(aggregate().targets, actual.targets)
+        assertTrue(actual.records.containsKey(RecordId("counter")))
+        assertFalse(actual.events.any { it.id == EventId("counter-alpha") })
+        assertTrue(actual.events.any { it.id == EventId("duration-no-target-open") })
+        assertFalse(actual.relationships.containsKey(RecordId("counter") to TargetId("alpha")))
+        assertFalse(actual.bindings.containsKey(BindingId("binding-alpha")))
+        assertTrue(actual.bindings.containsKey(BindingId("binding-no-target")))
+        assertTrue(actual.undoReceipts.containsKey(ReceiptId("receipt")))
+    }
+
+    @Test
+    fun coreConfirmedRecordDeletionRemovesNoTargetHistoryAndItsUndoReceipts() {
+        val before = aggregate()
+        val boundary = InMemoryLocalPersistence(before)
+        val engine = EventEngine(boundary, TestClock)
+
+        assertTrue(engine.deleteScope(RecordId("duration"), confirmed = true) is EngineResult.Applied)
+
+        val actual = boundary.read()
+        assertFalse(actual.records.containsKey(RecordId("duration")))
+        assertFalse(actual.events.any { it.recordId == RecordId("duration") })
+        assertFalse(actual.relationships.keys.any { it.first == RecordId("duration") })
+        assertFalse(actual.bindings.values.any { it.recordId == RecordId("duration") })
+        assertEquals(before.targets, actual.targets)
+        assertTrue(actual.events.any { it.id == EventId("counter-alpha") })
+        assertTrue(actual.bindings.containsKey(BindingId("binding-alpha")))
+    }
+
     @Test
     fun readAfterWritePreservesEveryAggregateFamilyAndMetadata() {
         val persistence = InMemoryLocalPersistence()
@@ -191,6 +234,10 @@ class RepositoryContractTest {
         val expected = aggregate()
         assertTrue(persistence.commit(CommitOperation(persistence.read(), expected)))
         return persistence
+    }
+
+    private object TestClock : io.github.thrhead.taplog.core.engine.AcceptanceClock {
+        override fun now() = EpochMillis(100)
     }
 
     private fun aggregate(): DomainState {
