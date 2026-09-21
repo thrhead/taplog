@@ -4,6 +4,7 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.thrhead.taplog.core.domain.*
+import io.github.thrhead.taplog.core.engine.CommitOperation
 import io.github.thrhead.taplog.core.engine.DomainState
 import io.github.thrhead.taplog.core.engine.ScopeContext
 import io.github.thrhead.taplog.core.engine.StateScope
@@ -17,6 +18,18 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class RoomAtomicCommitBoundaryTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Test
+    fun commitPublishesCompleteStateAndRejectsStaleExpectedState() = withDatabase { database ->
+        val before = aggregate()
+        seed(database, before)
+        val boundary = RoomAtomicCommitBoundary(database)
+        val updated = before.copy(generation = DatasetGeneration(8), nextSequence = Sequence(81))
+
+        assertTrue(boundary.commit(CommitOperation(before, updated)))
+        assertFalse(boundary.commit(CommitOperation(before, before.copy(nextSequence = Sequence(82)))))
+        assertEquals(updated, boundary.read())
+    }
 
     // Catches omitted initialization, duplicate metadata on open, or counter reset on reopen.
     @Test

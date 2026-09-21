@@ -1,13 +1,10 @@
 package io.github.thrhead.taplog.data.persistence
 
-import io.github.thrhead.taplog.core.engine.AtomicCommitBoundary
-import io.github.thrhead.taplog.core.engine.CommitOperation
 import io.github.thrhead.taplog.core.engine.DomainState
 import java.util.concurrent.Callable
 
-internal interface LocalPersistence : AtomicCommitBoundary {
-    override fun read(): DomainState
-    override fun commit(operation: CommitOperation): Boolean
+internal interface LocalPersistence {
+    fun read(): DomainState
 }
 
 internal class RoomLocalPersistence(private val database: TapLogDatabase) : LocalPersistence {
@@ -24,18 +21,7 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         val rows = try {
             database.runInTransaction(Callable {
                 val dao = database.persistenceDao()
-                PersistenceRows(
-                    records = dao.readRecords(),
-                    targets = dao.readTargets(),
-                    recordTargets = dao.readRecordTargets(),
-                    stateGroups = dao.readStateGroups(),
-                    events = dao.readEvents(),
-                    stateScopes = dao.readStateScopes(),
-                    bindings = dao.readBindings(),
-                    bindingUndoInvalidations = dao.readBindingUndoInvalidations(),
-                    undoReceipts = dao.readUndoReceipts(),
-                    metadata = dao.readMetadataRows(),
-                )
+                readStoredRows(dao)
             })
         } catch (failure: PersistenceFailure) {
             throw failure
@@ -46,6 +32,21 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         // Immutable scalar rows retain the transaction snapshot after it ends.
         // Mapping failures remain non-retryable and never trigger row repair.
         return PersistenceMapper.fromRows(rows)
+    }
+
+    internal fun readInTransaction(dao: PersistenceReadDao): DomainState =
+        PersistenceMapper.fromRows(readStoredRows(dao))
+
+    internal fun writeAggregate(state: DomainState, dao: PersistenceDao) {
+        val rows = PersistenceMapper.toRows(state)
+        PersistenceMapper.fromRows(rows)
+        writeStateGroupsAndScopes(state, dao)
+        writeRecordsAndTargets(state, dao)
+        writeRelationships(state, dao)
+        writeEvents(state, dao)
+        writeBindings(state, dao)
+        writeUndoMetadata(state, dao)
+        dao.upsertMetadata(rows.metadata)
     }
 
     /**
@@ -453,7 +454,4 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         validateUndo()
     }
 
-    // The complete atomic write boundary belongs to T027.
-    override fun commit(operation: CommitOperation): Boolean =
-        throw UnsupportedOperationException("Atomic commits are not implemented")
 }

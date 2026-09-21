@@ -74,3 +74,4 @@ Task 23: complete (commit 7d6539d, review clean; focused and full `:data:testDeb
 Task 24: complete (working implementation and contract test; full `:data:testDebugUnitTest` passed; review clean)
 Task 25: complete (contract tests added; focused and full `:data:testDebugUnitTest` passed; review clean)
 Task 26: complete (Room deletion/reopen coverage added; Android test source compiles; connected test deferred: no connected devices)
+Task 27: complete (dedicated Room atomic boundary added; JVM suite and Android-test compilation passed; device execution deferred: no connected devices)
