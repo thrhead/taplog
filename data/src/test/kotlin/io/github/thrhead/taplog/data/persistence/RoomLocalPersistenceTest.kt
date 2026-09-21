@@ -15,6 +15,35 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    @Test
+    fun permanentDeletionPersistsTheExactCoreRecordAndPairStateDiff() {
+        val before = lifecycleBefore()
+        val recordDelete = before.copy(
+            records = before.records - RecordId("moment"),
+            relationships = before.relationships.filterKeys { it.first != RecordId("moment") },
+            events = before.events.filterNot { it.recordId == RecordId("moment") },
+            bindings = before.bindings.filterValues { it.recordId != RecordId("moment") },
+        )
+        val recordDatabase = SnapshotDatabase(PersistenceMapper.toRows(before))
+        RoomLocalPersistence(recordDatabase).writePermanentDeletion(recordDelete, recordDatabase.persistenceDao())
+        assertEquals(recordDelete, RoomLocalPersistence(recordDatabase).read())
+        assertTrue(before.events.any { it.recordId == RecordId("moment") && it.targetId == null })
+        assertTrue(recordDelete.events.none { it.recordId == RecordId("moment") })
+        assertEquals(before.targets, RoomLocalPersistence(recordDatabase).read().targets)
+
+        val pairDelete = before.copy(
+            relationships = before.relationships - (RecordId("counter") to TargetId("target")),
+            events = before.events.filterNot { it.id == EventId("event-2") },
+            bindings = before.bindings.filterValues { it.recordId != RecordId("counter") || it.targetId != TargetId("target") },
+            undoReceipts = before.undoReceipts.filterValues { it.eventId != EventId("event-2") },
+        )
+        val pairDatabase = SnapshotDatabase(PersistenceMapper.toRows(before))
+        RoomLocalPersistence(pairDatabase).writePermanentDeletion(pairDelete, pairDatabase.persistenceDao())
+        assertEquals(pairDelete, RoomLocalPersistence(pairDatabase).read())
+        assertEquals(before.records.getValue(RecordId("counter")), RoomLocalPersistence(pairDatabase).read().records.getValue(RecordId("counter")))
+        assertEquals(before.targets, RoomLocalPersistence(pairDatabase).read().targets)
+    }
+
     // Catches split lifecycle persistence, inferred payloads, snapshot rewrites, and lost unrelated scope history.
     @Test
     fun lifecycleWritesPersistTheExactCoreProducedArchiveAndUnlinkAggregate() {
@@ -979,6 +1008,42 @@ class RoomLocalPersistenceTest {
                     val events = committed.events.associateBy { it.eventId } + rows.associateBy { it.eventId }
                     committed = committed.copy(events = events.values.sortedWith(compareBy({ it.occurredAt }, { it.sequence })))
                     return@proxyWithArguments null
+                }
+                "deleteEvents" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val ids = arguments!![0] as List<String>
+                    committed = committed.copy(events = committed.events.filterNot { it.eventId in ids })
+                    return@proxyWithArguments 0
+                }
+                "deleteUndoReceipts" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val ids = arguments!![0] as List<String>
+                    committed = committed.copy(undoReceipts = committed.undoReceipts.filterNot { it.receiptId in ids })
+                    return@proxyWithArguments 0
+                }
+                "deleteBindingUndoInvalidations" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<BindingUndoInvalidationEntity>
+                    committed = committed.copy(bindingUndoInvalidations = committed.bindingUndoInvalidations.filterNot { it in rows })
+                    return@proxyWithArguments 0
+                }
+                "deleteBindings" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<BindingEntity>
+                    committed = committed.copy(bindings = committed.bindings.filterNot { it in rows })
+                    return@proxyWithArguments 0
+                }
+                "deleteRecordTargets" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<RecordTargetEntity>
+                    committed = committed.copy(recordTargets = committed.recordTargets.filterNot { it in rows })
+                    return@proxyWithArguments 0
+                }
+                "deleteRecords" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<RecordEntity>
+                    committed = committed.copy(records = committed.records.filterNot { it in rows })
+                    return@proxyWithArguments 0
                 }
             }
             queryFailure?.let { throw it }

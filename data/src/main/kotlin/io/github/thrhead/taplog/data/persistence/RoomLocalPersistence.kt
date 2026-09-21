@@ -228,6 +228,70 @@ internal class RoomLocalPersistence(private val database: TapLogDatabase) : Loca
         dao.upsertMetadata(rows.metadata)
     }
 
+    /**
+     * Persists only the bounded deletion diff already produced by core. Definitions outside
+     * the supplied aggregate are never inferred as deletions: Targets, State Groups, and
+     * State scopes must remain byte-for-byte present, while omitted Records, Relationships,
+     * Events, Bindings, invalidations, and Undo receipts are deleted in FK-safe order.
+     */
+    internal fun writePermanentDeletion(state: DomainState, dao: PersistenceDao) {
+        val rows = PersistenceMapper.toRows(state)
+        val storedRows = readStoredRows(dao)
+        PersistenceMapper.fromRows(storedRows)
+        validatePermanentDeletion(rows, storedRows)
+
+        val storedEvents = storedRows.events.associateBy { it.eventId }
+        val storedReceipts = storedRows.undoReceipts.associateBy { it.receiptId }
+        val storedInvalidations = storedRows.bindingUndoInvalidations.associateBy { it.bindingId to it.receiptId }
+        val storedBindings = storedRows.bindings.associateBy { it.bindingId }
+        val storedRelationships = storedRows.recordTargets.associateBy { it.recordId to it.targetId }
+        val storedRecords = storedRows.records.associateBy { it.recordId }
+
+        val deletedBindings = storedBindings.keys - rows.bindings.map { it.bindingId }.toSet()
+        val suppliedInvalidations = rows.bindingUndoInvalidations.associateBy { it.bindingId to it.receiptId }
+        val deletedInvalidations = storedInvalidations
+            .filterKeys { it !in suppliedInvalidations }
+            .values.toList()
+        if (deletedInvalidations.isNotEmpty()) dao.deleteBindingUndoInvalidations(deletedInvalidations)
+        val deletedReceipts = storedReceipts.values.filter { it.receiptId !in rows.undoReceipts.map { row -> row.receiptId }.toSet() }
+        if (deletedReceipts.isNotEmpty()) dao.deleteUndoReceipts(deletedReceipts.map { it.receiptId })
+        val deletedEvents = storedEvents.keys - rows.events.map { it.eventId }.toSet()
+        if (deletedEvents.isNotEmpty()) dao.deleteEvents(deletedEvents.toList())
+        if (deletedBindings.isNotEmpty()) dao.deleteBindings(deletedBindings.map { storedBindings.getValue(it) })
+        val deletedRelationships = storedRelationships.keys - rows.recordTargets.map { it.recordId to it.targetId }.toSet()
+        if (deletedRelationships.isNotEmpty()) dao.deleteRecordTargets(deletedRelationships.map { storedRelationships.getValue(it) })
+        val deletedRecords = storedRecords.keys - rows.records.map { it.recordId }.toSet()
+        if (deletedRecords.isNotEmpty()) dao.deleteRecords(deletedRecords.map { storedRecords.getValue(it) })
+
+        writeStateGroupsAndScopes(state, dao)
+        writeRecordsAndTargets(state, dao)
+        writeRelationships(state, dao)
+        writeEvents(state, dao)
+        writeBindings(state, dao)
+        writeUndoMetadata(state, dao)
+        dao.upsertMetadata(rows.metadata)
+    }
+
+    private fun validatePermanentDeletion(rows: PersistenceRows, stored: PersistenceRows) {
+        PersistenceMapper.requireInvariant(rows.targets == stored.targets, "Permanent deletion must retain Target definitions")
+        PersistenceMapper.requireInvariant(rows.stateGroups == stored.stateGroups, "Permanent deletion must retain State Groups")
+        PersistenceMapper.requireInvariant(rows.stateScopes == stored.stateScopes, "Permanent deletion must retain State scopes")
+        PersistenceMapper.requireInvariant(rows.metadata == stored.metadata, "Permanent deletion must retain Dataset context")
+        fun retainedOnly(current: List<Any>, previous: List<Any>, key: (Any) -> Any) {
+            val previousByKey = previous.associateBy(key)
+            current.forEach { row -> PersistenceMapper.requireInvariant(previousByKey[key(row)] == row,
+                "Permanent deletion may only omit existing rows") }
+        }
+        retainedOnly(rows.records, stored.records) { (it as RecordEntity).recordId }
+        retainedOnly(rows.recordTargets, stored.recordTargets) { (it as RecordTargetEntity).recordId to it.targetId }
+        retainedOnly(rows.events, stored.events) { (it as EventEntity).eventId }
+        retainedOnly(rows.bindings, stored.bindings) { (it as BindingEntity).bindingId }
+        retainedOnly(rows.bindingUndoInvalidations, stored.bindingUndoInvalidations) {
+            (it as BindingUndoInvalidationEntity).bindingId to it.receiptId
+        }
+        retainedOnly(rows.undoReceipts, stored.undoReceipts) { (it as UndoReceiptEntity).receiptId }
+    }
+
     private fun readStoredRows(dao: PersistenceReadDao) = PersistenceRows(
         records = dao.readRecords(), targets = dao.readTargets(), recordTargets = dao.readRecordTargets(),
         stateGroups = dao.readStateGroups(), events = dao.readEvents(), stateScopes = dao.readStateScopes(),
