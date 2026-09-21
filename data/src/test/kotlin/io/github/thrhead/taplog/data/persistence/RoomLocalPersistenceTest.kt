@@ -15,6 +15,111 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.Callable
 
 class RoomLocalPersistenceTest {
+    // Catches split lifecycle persistence, inferred payloads, snapshot rewrites, and lost unrelated scope history.
+    @Test
+    fun lifecycleWritesPersistTheExactCoreProducedArchiveAndUnlinkAggregate() {
+        val before = lifecycleBefore()
+        val target = TargetId("target")
+        val scope = StateScope(StateGroupId("group"), target)
+        val pair = RecordId("counter") to target
+        val binding = before.bindings.getValue(BindingId("binding"))
+        val expected = before.copy(
+            targets = before.targets + (target to before.targets.getValue(target).copy(
+                lifecycle = Lifecycle.ARCHIVED, revision = Revision(1))),
+            relationships = before.relationships + (pair to before.relationships.getValue(pair).copy(
+                linked = false, revision = Revision(5))),
+            events = before.events.map { event ->
+                if (event.id == EventId("event-3")) event.copy(updatedAt = EpochMillis(40), revision = Revision(4),
+                    payload = EventPayload.Duration(EpochMillis(10), null, DurationStatus.INCOMPLETE,
+                        "scope became inactive")) else event
+            },
+            generation = DatasetGeneration(8),
+            nextSequence = Sequence(21),
+            currentStates = before.currentStates - scope,
+            stateGenerations = before.stateGenerations + (scope to DatasetGeneration(3)),
+            bindings = before.bindings + (binding.bindingId to binding.copy(status = BindingStatus.ORPHANED,
+                revision = Revision(5), undoInvalidations = listOf(
+                    UndoInvalidation(ReceiptId("receipt"), ResultReason.STALE_REVISION)))),
+        )
+        val database = SnapshotDatabase(PersistenceMapper.toRows(before))
+
+        RoomLocalPersistence(database).writeLifecycleEffects(expected, database.persistenceDao())
+
+        val recovered = RoomLocalPersistence(database).read()
+        assertEquals(expected, recovered)
+        assertEquals(before.events.associate { it.id to it.snapshot }, recovered.events.associate { it.id to it.snapshot })
+        assertEquals(EventPayload.Duration(EpochMillis(10), null, DurationStatus.INCOMPLETE,
+            "scope became inactive"), recovered.events.single { it.id == EventId("event-3") }.payload)
+        assertEquals(before.relationships.getValue(RecordId("moment") to TargetId("other")),
+            recovered.relationships.getValue(RecordId("moment") to TargetId("other")))
+        assertEquals(before.bindings.getValue(BindingId("other")), recovered.bindings.getValue(BindingId("other")))
+        assertEquals(before.events.single { it.targetId == null && it.id == EventId("event-1") },
+            recovered.events.single { it.id == EventId("event-1") })
+        assertEquals(listOf(DatasetMetadataEntity(1, 8, 21, 1)), database.committed.metadata)
+    }
+
+    // Catches a late invalid lifecycle row after an earlier definition/Event/scope phase already mutated storage.
+    @Test
+    fun lifecycleWritesPreflightEveryFamilyBeforeTheFirstMutation() {
+        val before = lifecycleBefore()
+        val target = TargetId("target")
+        val pair = RecordId("counter") to target
+        val binding = before.bindings.getValue(BindingId("binding"))
+        val duration = before.events.single { it.id == EventId("event-3") }
+        val valid = before.copy(
+            targets = before.targets + (target to before.targets.getValue(target).copy(
+                lifecycle = Lifecycle.ARCHIVED, revision = Revision(1))),
+            relationships = before.relationships + (pair to before.relationships.getValue(pair).copy(
+                linked = false, revision = Revision(5))),
+            events = before.events.map { event -> if (event.id == duration.id) event.copy(
+                revision = Revision(4), payload = EventPayload.Duration(EpochMillis(10), null,
+                    DurationStatus.INCOMPLETE, "scope became inactive")) else event },
+            bindings = before.bindings + (binding.bindingId to binding.copy(status = BindingStatus.ORPHANED,
+                revision = Revision(5), undoInvalidations = listOf(
+                    UndoInvalidation(ReceiptId("receipt"), ResultReason.STALE_REVISION)))),
+        )
+        val invalidStates = listOf(
+            valid.copy(targets = valid.targets + (target to valid.targets.getValue(target).copy(revision = Revision(0)))),
+            valid.copy(relationships = valid.relationships + (pair to valid.relationships.getValue(pair).copy(revision = Revision(4)))),
+            valid.copy(events = valid.events.map { event -> if (event.id == duration.id)
+                event.copy(revision = duration.revision) else event }),
+            valid.copy(events = valid.events.map { event -> if (event.id == duration.id)
+                duration.copy(updatedAt = EpochMillis(40), revision = Revision(4),
+                    payload = EventPayload.Duration(EpochMillis(11))) else event }),
+            valid.copy(events = valid.events.map { event -> if (event.id == duration.id)
+                event.copy(snapshot = event.snapshot.copy(recordName = "rewritten live name")) else event }),
+            valid.copy(bindings = valid.bindings + (binding.bindingId to valid.bindings.getValue(binding.bindingId).copy(
+                revision = binding.revision))),
+            valid.copy(bindings = valid.bindings + (binding.bindingId to valid.bindings.getValue(binding.bindingId).copy(
+                lastKnownDisplay = DisplaySnapshot("rewritten live name", null, "rewritten target", null)))),
+        )
+
+        invalidStates.forEach { invalid ->
+            val original = PersistenceMapper.toRows(before)
+            val database = SnapshotDatabase(original)
+            assertThrows(MappingFailure::class.java) {
+                RoomLocalPersistence(database).writeLifecycleEffects(invalid, database.persistenceDao())
+            }
+            assertEquals(original, database.committed)
+        }
+    }
+
+    // Catches silent repair of a malformed stored aggregate while applying a valid lifecycle state.
+    @Test
+    fun lifecycleWritesRejectCorruptStoredContextWithoutAnyRepair() {
+        val before = lifecycleBefore()
+        val supplied = before.copy(generation = DatasetGeneration(8))
+        val original = PersistenceMapper.toRows(before).let { rows ->
+            rows.copy(stateScopes = rows.stateScopes.map { it.copy(resetAt = 99) })
+        }
+        val database = SnapshotDatabase(original)
+
+        assertThrows(MappingFailure::class.java) {
+            RoomLocalPersistence(database).writeLifecycleEffects(supplied, database.persistenceDao())
+        }
+        assertEquals(original, database.committed)
+    }
+
     // Catches clearing adapter-owned history when the core projection replays or advances context.
     @Test
     fun undoWritesPreserveConsumedInvalidAndBeforeImageAdapterFields() {
@@ -799,6 +904,12 @@ class RoomLocalPersistenceTest {
                 "readBindings" -> if (snapshot == null) return@proxyWithArguments committed.bindings
                 "readBindingUndoInvalidations" -> if (snapshot == null) return@proxyWithArguments committed.bindingUndoInvalidations
                 "readUndoReceipts" -> if (snapshot == null) return@proxyWithArguments committed.undoReceipts
+                "upsertMetadata" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rows = arguments!![0] as List<DatasetMetadataEntity>
+                    committed = committed.copy(metadata = rows)
+                    return@proxyWithArguments null
+                }
                 "upsertBindings" -> {
                     @Suppress("UNCHECKED_CAST")
                     val rows = arguments!![0] as List<BindingEntity>
@@ -981,5 +1092,31 @@ class RoomLocalPersistenceTest {
             events, mapOf(group to StateGroup(group, "state group")), DatasetGeneration(7), Sequence(20),
             mapOf(scope to RecordId("state")), mapOf(scope to DatasetGeneration(2)),
             mapOf(binding.bindingId to binding), mapOf(receipt.receiptId to receipt))
+    }
+
+    private fun lifecycleBefore(): DomainState {
+        val state = aggregate()
+        val target = TargetId("target")
+        val other = TargetId("other")
+        val pair = RecordId("counter") to target
+        val originalBinding = state.bindings.getValue(BindingId("binding")).copy(
+            status = BindingStatus.ACTIVE, revision = Revision(4), undoInvalidations = emptyList())
+        val unrelatedBinding = BindingLifecycle(BindingId("other"), RecordId("moment"), other,
+            BindingStatus.ACTIVE, Revision(7), DisplaySnapshot("historic other", "old icon", "old other", null))
+        val receipt = state.undoReceipts.getValue(ReceiptId("receipt")).copy(
+            eventId = EventId("event-2"), scope = null)
+        return state.copy(
+            targets = state.targets + (other to Target(other, "other target", null, revision = Revision(3))),
+            relationships = linkedMapOf(
+                pair to RecordTarget(pair.first, pair.second, linked = true, revision = Revision(4)),
+                (RecordId("duration") to target) to RecordTarget(RecordId("duration"), target, true, Revision(2)),
+                (RecordId("state") to target) to RecordTarget(RecordId("state"), target, true, Revision(2)),
+                (RecordId("moment") to other) to RecordTarget(RecordId("moment"), other, true, Revision(9)),
+            ),
+            events = state.events.map { event -> if (event.id == EventId("event-3")) event.copy(targetId = target) else event },
+            bindings = linkedMapOf(originalBinding.bindingId to originalBinding,
+                unrelatedBinding.bindingId to unrelatedBinding),
+            undoReceipts = mapOf(receipt.receiptId to receipt),
+        )
     }
 }
