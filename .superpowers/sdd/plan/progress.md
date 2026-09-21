@@ -73,3 +73,4 @@ Task 22: complete (commits a279eeb..c4c7bc2, review clean; Android runtime/reope
 Task 23: complete (commit 7d6539d, review clean; focused and full `:data:testDebugUnitTest` passed)
 Task 24: complete (working implementation and contract test; full `:data:testDebugUnitTest` passed; review clean)
 Task 25: complete (contract tests added; focused and full `:data:testDebugUnitTest` passed; review clean)
+Task 26: complete (Room deletion/reopen coverage added; Android test source compiles; connected test deferred: no connected devices)

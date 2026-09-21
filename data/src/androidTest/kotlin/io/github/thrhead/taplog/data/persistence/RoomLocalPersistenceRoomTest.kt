@@ -16,6 +16,32 @@ import java.util.UUID
 class RoomLocalPersistenceRoomTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    @Test
+    fun permanentDeletionReopenRetainsTargetsAndUnrelatedNoTargetHistory() = withDatabaseName { name ->
+        val before = aggregate()
+        val expected = before.copy(
+            relationships = before.relationships - (RecordId("counter") to TargetId("target")),
+            events = before.events.filterNot { it.id == EventId("event-2") },
+            bindings = emptyMap(),
+        )
+        withDatabase(name) { database ->
+            seed(database, before)
+            database.runInTransaction {
+                RoomLocalPersistence(database).writePermanentDeletion(expected, database.persistenceDao())
+            }
+            assertEquals(expected, RoomLocalPersistence(database).read())
+            assertEquals(3, database.persistenceDao().readEvents().size)
+            assertEquals(null, database.persistenceDao().readEvent("event-2"))
+            assertEquals(0, database.persistenceDao().readRecordTargets().size)
+            assertEquals(1, database.persistenceDao().readTargets().size)
+        }
+        withDatabase(name) { database ->
+            assertEquals(expected, RoomLocalPersistence(database).read())
+            assertEquals(setOf("event-1", "event-3", "event-4"), database.persistenceDao().readEvents().map { it.eventId }.toSet())
+            assertEquals("target", database.persistenceDao().readTargets().single().targetId)
+        }
+    }
+
     // Catches lost receipt context or unwanted Event FK constraints across normal reopen.
     @Test
     fun stagedUndoMetadataRetainsDeletedEventContextAndOmittedReceiptsAcrossReopen() = withDatabaseName { name ->
