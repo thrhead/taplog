@@ -89,3 +89,4 @@ Task 37: complete (Room key/index/OPEN-Duration/monotonicity coverage added; And
 Task 38: complete (`:data:testDebugUnitTest` and `:data:lintDebug` passed; connected Android tests blocked by no device; detekt baseline has 4,869 existing weighted issues)
 Task 39: complete (`:core:test`, `git diff --check`, and approved-path inspection passed)
 Task 40: complete (1,000-event offline JVM and Android coverage added; JVM suite and Android-test compilation passed)
+Final whole-feature review: clean; no critical/important findings. Fresh `:data:testDebugUnitTest`, `:core:test`, and `git diff --check` passed. Android test sources compile; connected execution remains unavailable without a device. Detekt remains blocked by the repository baseline of 4,869 weighted issues.
