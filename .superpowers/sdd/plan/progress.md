@@ -86,3 +86,6 @@ Task 34: complete (dedicated fresh-v1 migration/open coverage added; Android-tes
 Task 35: complete (dedicated unsupported-version/corrupt-row/no-repair coverage added; Android-test source compiles)
 Task 36: complete (dependency-boundary tests added; focused test passed)
 Task 37: complete (Room key/index/OPEN-Duration/monotonicity coverage added; Android-test source compiles)
+Task 38: complete (`:data:testDebugUnitTest` and `:data:lintDebug` passed; connected Android tests blocked by no device; detekt baseline has 4,869 existing weighted issues)
+Task 39: complete (`:core:test`, `git diff --check`, and approved-path inspection passed)
+Task 40: complete (1,000-event offline JVM and Android coverage added; JVM suite and Android-test compilation passed)

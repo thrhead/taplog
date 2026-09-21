@@ -29,3 +29,10 @@
 9. Create a fresh v1 database and verify the production migration matrix is empty. Run a test-only failing migration transaction; assert rollback, old-v1 usability on a later open, and typed migration/open failure.
 10. Interrupt commits before begin, after compare, after each write phase, before SQLite commit, and after commit before result observation; reopen and assert exactly old-or-new complete state, never partial rows. Retry with the old expected context and assert no duplicate commit.
 11. Run `OfflineLocalPersistenceTest`: execute core commands against the in-memory adapter and Room adapter with no account, network, server, AI, or channel dependency; assert local read/commit succeeds while external services are unavailable.
+
+## Latest verification
+
+- `:data:testDebugUnitTest`: passed.
+- `:data:connectedDebugAndroidTest`: not runnable in this environment; Gradle reported no connected devices. Android-test sources compile successfully.
+- `:data:lintDebug`: passed.
+- `:detekt`: reports the repository's existing baseline violations (4,869 weighted issues), including pre-existing core/test formatting and complexity findings; no clean detekt baseline is currently available.
