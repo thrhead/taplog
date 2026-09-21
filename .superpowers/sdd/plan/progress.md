@@ -82,3 +82,5 @@ Task 30: complete (Room rollback/concurrency coverage added; Android-test source
 Task 31: complete (existing `:core:test` suite passed; core contracts unchanged)
 Task 32: complete (v1 database, empty production migration matrix, export, and fail-closed version behavior verified)
 Task 33: complete (schema export checked in; quickstart documents v1, empty matrix, and future migration ownership)
+Task 34: complete (dedicated fresh-v1 migration/open coverage added; Android-test source compiles)
+Task 35: complete (dedicated unsupported-version/corrupt-row/no-repair coverage added; Android-test source compiles)
