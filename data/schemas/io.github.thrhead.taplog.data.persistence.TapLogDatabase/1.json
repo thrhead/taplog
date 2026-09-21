@@ -1,0 +1,874 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "685af6332cbc8f41c7a35a37e003a5eb",
+    "entities": [
+      {
+        "tableName": "records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordId` TEXT NOT NULL, `name` TEXT NOT NULL, `icon` TEXT, `behavior` TEXT NOT NULL, `lifecycle` TEXT NOT NULL, `unit` TEXT, `defaultQuantity` TEXT, `stateGroupId` TEXT, `revision` INTEGER NOT NULL, `hasEvents` INTEGER NOT NULL, PRIMARY KEY(`recordId`), FOREIGN KEY(`stateGroupId`) REFERENCES `state_groups`(`stateGroupId`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "recordId",
+            "columnName": "recordId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "icon",
+            "columnName": "icon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "behavior",
+            "columnName": "behavior",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lifecycle",
+            "columnName": "lifecycle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "defaultQuantity",
+            "columnName": "defaultQuantity",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "stateGroupId",
+            "columnName": "stateGroupId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasEvents",
+            "columnName": "hasEvents",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recordId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_records_stateGroupId",
+            "unique": false,
+            "columnNames": [
+              "stateGroupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_records_stateGroupId` ON `${TABLE_NAME}` (`stateGroupId`)"
+          },
+          {
+            "name": "index_records_lifecycle",
+            "unique": false,
+            "columnNames": [
+              "lifecycle"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_records_lifecycle` ON `${TABLE_NAME}` (`lifecycle`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "state_groups",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "stateGroupId"
+            ],
+            "referencedColumns": [
+              "stateGroupId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "targets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`targetId` TEXT NOT NULL, `name` TEXT NOT NULL, `icon` TEXT, `lifecycle` TEXT NOT NULL, `revision` INTEGER NOT NULL, PRIMARY KEY(`targetId`))",
+        "fields": [
+          {
+            "fieldPath": "targetId",
+            "columnName": "targetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "icon",
+            "columnName": "icon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lifecycle",
+            "columnName": "lifecycle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "targetId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_targets_lifecycle",
+            "unique": false,
+            "columnNames": [
+              "lifecycle"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_targets_lifecycle` ON `${TABLE_NAME}` (`lifecycle`)"
+          }
+        ]
+      },
+      {
+        "tableName": "record_targets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordId` TEXT NOT NULL, `targetId` TEXT NOT NULL, `linked` INTEGER NOT NULL, `revision` INTEGER NOT NULL, PRIMARY KEY(`recordId`, `targetId`), FOREIGN KEY(`recordId`) REFERENCES `records`(`recordId`) ON UPDATE RESTRICT ON DELETE RESTRICT , FOREIGN KEY(`targetId`) REFERENCES `targets`(`targetId`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "recordId",
+            "columnName": "recordId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetId",
+            "columnName": "targetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "linked",
+            "columnName": "linked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recordId",
+            "targetId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_record_targets_targetId",
+            "unique": false,
+            "columnNames": [
+              "targetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_record_targets_targetId` ON `${TABLE_NAME}` (`targetId`)"
+          },
+          {
+            "name": "index_record_targets_linked",
+            "unique": false,
+            "columnNames": [
+              "linked"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_record_targets_linked` ON `${TABLE_NAME}` (`linked`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "records",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "recordId"
+            ],
+            "referencedColumns": [
+              "recordId"
+            ]
+          },
+          {
+            "table": "targets",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "targetId"
+            ],
+            "referencedColumns": [
+              "targetId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "state_groups",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`stateGroupId` TEXT NOT NULL, `name` TEXT NOT NULL, `revision` INTEGER NOT NULL, PRIMARY KEY(`stateGroupId`))",
+        "fields": [
+          {
+            "fieldPath": "stateGroupId",
+            "columnName": "stateGroupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "stateGroupId"
+          ]
+        }
+      },
+      {
+        "tableName": "events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` TEXT NOT NULL, `recordId` TEXT NOT NULL, `targetId` TEXT, `targetScopeKey` TEXT NOT NULL, `behavior` TEXT NOT NULL, `occurredAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `sequence` INTEGER NOT NULL, `source` TEXT NOT NULL, `revision` INTEGER NOT NULL, `snapshotRecordName` TEXT NOT NULL, `snapshotRecordIcon` TEXT, `snapshotTargetName` TEXT, `snapshotTargetIcon` TEXT, `snapshotBehavior` TEXT NOT NULL, `snapshotUnit` TEXT, `counterQuantity` TEXT, `counterUnit` TEXT, `durationStartAt` INTEGER, `durationEndAt` INTEGER, `durationStatus` TEXT, `durationIncompleteReason` TEXT, `stateGroupId` TEXT, `stateGeneration` INTEGER, PRIMARY KEY(`eventId`), FOREIGN KEY(`recordId`) REFERENCES `records`(`recordId`) ON UPDATE RESTRICT ON DELETE RESTRICT , FOREIGN KEY(`targetId`) REFERENCES `targets`(`targetId`) ON UPDATE RESTRICT ON DELETE RESTRICT , FOREIGN KEY(`stateGroupId`) REFERENCES `state_groups`(`stateGroupId`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordId",
+            "columnName": "recordId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetId",
+            "columnName": "targetId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "targetScopeKey",
+            "columnName": "targetScopeKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "behavior",
+            "columnName": "behavior",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "occurredAt",
+            "columnName": "occurredAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotRecordName",
+            "columnName": "snapshotRecordName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotRecordIcon",
+            "columnName": "snapshotRecordIcon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotTargetName",
+            "columnName": "snapshotTargetName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotTargetIcon",
+            "columnName": "snapshotTargetIcon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotBehavior",
+            "columnName": "snapshotBehavior",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotUnit",
+            "columnName": "snapshotUnit",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "counterQuantity",
+            "columnName": "counterQuantity",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "counterUnit",
+            "columnName": "counterUnit",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationStartAt",
+            "columnName": "durationStartAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "durationEndAt",
+            "columnName": "durationEndAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "durationStatus",
+            "columnName": "durationStatus",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationIncompleteReason",
+            "columnName": "durationIncompleteReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "stateGroupId",
+            "columnName": "stateGroupId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "stateGeneration",
+            "columnName": "stateGeneration",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_events_sequence",
+            "unique": true,
+            "columnNames": [
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_events_sequence` ON `${TABLE_NAME}` (`sequence`)"
+          },
+          {
+            "name": "index_events_occurredAt_sequence",
+            "unique": false,
+            "columnNames": [
+              "occurredAt",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_occurredAt_sequence` ON `${TABLE_NAME}` (`occurredAt`, `sequence`)"
+          },
+          {
+            "name": "index_events_recordId_targetId_occurredAt_sequence",
+            "unique": false,
+            "columnNames": [
+              "recordId",
+              "targetId",
+              "occurredAt",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_recordId_targetId_occurredAt_sequence` ON `${TABLE_NAME}` (`recordId`, `targetId`, `occurredAt`, `sequence`)"
+          },
+          {
+            "name": "index_events_recordId_targetScopeKey_durationStatus",
+            "unique": false,
+            "columnNames": [
+              "recordId",
+              "targetScopeKey",
+              "durationStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_recordId_targetScopeKey_durationStatus` ON `${TABLE_NAME}` (`recordId`, `targetScopeKey`, `durationStatus`)"
+          },
+          {
+            "name": "index_events_stateGroupId_targetScopeKey_stateGeneration_occurredAt_sequence",
+            "unique": false,
+            "columnNames": [
+              "stateGroupId",
+              "targetScopeKey",
+              "stateGeneration",
+              "occurredAt",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_stateGroupId_targetScopeKey_stateGeneration_occurredAt_sequence` ON `${TABLE_NAME}` (`stateGroupId`, `targetScopeKey`, `stateGeneration`, `occurredAt`, `sequence`)"
+          },
+          {
+            "name": "index_events_targetId",
+            "unique": false,
+            "columnNames": [
+              "targetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_targetId` ON `${TABLE_NAME}` (`targetId`)"
+          },
+          {
+            "name": "index_events_durationStatus",
+            "unique": false,
+            "columnNames": [
+              "durationStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_durationStatus` ON `${TABLE_NAME}` (`durationStatus`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "records",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "recordId"
+            ],
+            "referencedColumns": [
+              "recordId"
+            ]
+          },
+          {
+            "table": "targets",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "targetId"
+            ],
+            "referencedColumns": [
+              "targetId"
+            ]
+          },
+          {
+            "table": "state_groups",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "stateGroupId"
+            ],
+            "referencedColumns": [
+              "stateGroupId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "state_scopes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`stateGroupId` TEXT NOT NULL, `targetScopeKey` TEXT NOT NULL, `generation` INTEGER NOT NULL, `currentRecordId` TEXT, `resetSequence` INTEGER, `resetAt` INTEGER, PRIMARY KEY(`stateGroupId`, `targetScopeKey`), FOREIGN KEY(`stateGroupId`) REFERENCES `state_groups`(`stateGroupId`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "stateGroupId",
+            "columnName": "stateGroupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetScopeKey",
+            "columnName": "targetScopeKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentRecordId",
+            "columnName": "currentRecordId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "resetSequence",
+            "columnName": "resetSequence",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "resetAt",
+            "columnName": "resetAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "stateGroupId",
+            "targetScopeKey"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "state_groups",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "stateGroupId"
+            ],
+            "referencedColumns": [
+              "stateGroupId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "bindings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`bindingId` TEXT NOT NULL, `recordId` TEXT NOT NULL, `targetId` TEXT, `status` TEXT NOT NULL, `revision` INTEGER NOT NULL, `snapshotRecordName` TEXT NOT NULL, `snapshotRecordIcon` TEXT, `snapshotTargetName` TEXT, `snapshotTargetIcon` TEXT, PRIMARY KEY(`bindingId`), FOREIGN KEY(`recordId`) REFERENCES `records`(`recordId`) ON UPDATE RESTRICT ON DELETE RESTRICT , FOREIGN KEY(`targetId`) REFERENCES `targets`(`targetId`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "bindingId",
+            "columnName": "bindingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordId",
+            "columnName": "recordId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetId",
+            "columnName": "targetId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotRecordName",
+            "columnName": "snapshotRecordName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotRecordIcon",
+            "columnName": "snapshotRecordIcon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotTargetName",
+            "columnName": "snapshotTargetName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotTargetIcon",
+            "columnName": "snapshotTargetIcon",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "bindingId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_bindings_recordId_targetId",
+            "unique": false,
+            "columnNames": [
+              "recordId",
+              "targetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_bindings_recordId_targetId` ON `${TABLE_NAME}` (`recordId`, `targetId`)"
+          },
+          {
+            "name": "index_bindings_targetId",
+            "unique": false,
+            "columnNames": [
+              "targetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_bindings_targetId` ON `${TABLE_NAME}` (`targetId`)"
+          },
+          {
+            "name": "index_bindings_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_bindings_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "records",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "recordId"
+            ],
+            "referencedColumns": [
+              "recordId"
+            ]
+          },
+          {
+            "table": "targets",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "targetId"
+            ],
+            "referencedColumns": [
+              "targetId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "binding_undo_invalidations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`bindingId` TEXT NOT NULL, `receiptId` TEXT NOT NULL, `reason` TEXT NOT NULL, PRIMARY KEY(`bindingId`, `receiptId`), FOREIGN KEY(`bindingId`) REFERENCES `bindings`(`bindingId`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "bindingId",
+            "columnName": "bindingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receiptId",
+            "columnName": "receiptId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "bindingId",
+            "receiptId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "bindings",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "bindingId"
+            ],
+            "referencedColumns": [
+              "bindingId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "undo_receipts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`receiptId` TEXT NOT NULL, `eventId` TEXT NOT NULL, `expectedEventRevision` INTEGER NOT NULL, `expectedDatasetGeneration` INTEGER NOT NULL, `stateGroupId` TEXT, `targetScopeKey` TEXT, `expectedScopeGeneration` INTEGER, `operation` TEXT, `beforeImageJson` TEXT, `consumed` INTEGER NOT NULL, `invalidationReason` TEXT, PRIMARY KEY(`receiptId`))",
+        "fields": [
+          {
+            "fieldPath": "receiptId",
+            "columnName": "receiptId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedEventRevision",
+            "columnName": "expectedEventRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedDatasetGeneration",
+            "columnName": "expectedDatasetGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stateGroupId",
+            "columnName": "stateGroupId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "targetScopeKey",
+            "columnName": "targetScopeKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "expectedScopeGeneration",
+            "columnName": "expectedScopeGeneration",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "operation",
+            "columnName": "operation",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "beforeImageJson",
+            "columnName": "beforeImageJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "consumed",
+            "columnName": "consumed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "invalidationReason",
+            "columnName": "invalidationReason",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "receiptId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_undo_receipts_eventId",
+            "unique": false,
+            "columnNames": [
+              "eventId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_undo_receipts_eventId` ON `${TABLE_NAME}` (`eventId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "dataset_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`singletonKey` INTEGER NOT NULL, `datasetGeneration` INTEGER NOT NULL, `nextSequence` INTEGER NOT NULL, `schemaVersion` INTEGER NOT NULL, PRIMARY KEY(`singletonKey`))",
+        "fields": [
+          {
+            "fieldPath": "singletonKey",
+            "columnName": "singletonKey",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "datasetGeneration",
+            "columnName": "datasetGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextSequence",
+            "columnName": "nextSequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "singletonKey"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '685af6332cbc8f41c7a35a37e003a5eb')"
+    ]
+  }
+}
