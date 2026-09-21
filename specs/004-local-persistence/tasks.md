@@ -154,3 +154,7 @@ failure to prove no reset, silent repair, or partial migrated state occurs.
 4. Add history-preserving lifecycle effects and explicit bounded deletion.
 5. Adapt the existing Boolean atomic boundary with serialized compare-and-swap and failure rollback tests.
 6. Add migration fixtures/tests and perform full quickstart, core, lint, detekt, and dependency-boundary verification.
+/mode
+## Phase 9: Convergence
+
+- [X] T041 Resolve the feature-attributable `:detekt` findings (3,671 current `data/src` findings, including 790 production-source findings and three `CyclomaticComplexMethod` violations), or establish an approved scoped baseline with a clear ownership and retirement path, per T038 (partial)

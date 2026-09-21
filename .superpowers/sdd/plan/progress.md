@@ -21,6 +21,7 @@
 | T027–T031 | atomic adapter → failure/Room/core verification | T027/T028 precede all verification; core contracts remain untouched. |
 | T032–T035 | database/migration registry → schema/tests | T032 precedes schema export, then migration tests. |
 | T036–T040 | foundations and all integration work → final checks | T038/T039 only after full implementation and offline coverage. |
+| T041 | completed feature → scoped Detekt convergence | Runs after final whole-feature review; it may only touch feature-attributable `:data` production findings and must preserve existing persistence contracts. |
 
 ## Global constraints reviewed
 
@@ -29,6 +30,7 @@
 - Event storage is one typed-payload `EventEntity` row; historical snapshots are never reconstructed or rewritten.
 - No global mutation revision; adapter stale/race rejection is Boolean `false`, mapped by the existing engine to `StorageFailure`.
 - Delete behavior persists the core-produced `DeleteScope`/`DeleteImpact` state only; no adapter-side widening or Target deletion.
+- T041 scope: do not clean the repository baseline, generated/schema/build output, or test-only findings; correct only feature-attributable `:data` production Detekt regressions, including attributable load-bearing complexity.
 
 Task 1: fix round 1/5 (1 addressed, 0 open — Gradle verification; commits 262e763..4417865)
 Task 1: complete (commits f3131e3..4417865, review clean)
@@ -90,3 +92,6 @@ Task 38: complete (`:data:testDebugUnitTest` and `:data:lintDebug` passed; conne
 Task 39: complete (`:core:test`, `git diff --check`, and approved-path inspection passed)
 Task 40: complete (1,000-event offline JVM and Android coverage added; JVM suite and Android-test compilation passed)
 Final whole-feature review: clean; no critical/important findings. Fresh `:data:testDebugUnitTest`, `:core:test`, and `git diff --check` passed. Android test sources compile; connected execution remains unavailable without a device. Detekt remains blocked by the repository baseline of 4,869 weighted issues.
+Task 41: complete (commits ccc579f..5ab9dba, review clean)
+- T041 attribution: 790 feature `data/src/main` findings were reduced to 0; the three feature complexity violations have local rationale-bearing suppressions at their invariant-validation coordinators. The remaining 4,097 root findings are classified as 2,881 feature test/Android-test-only and 1,216 pre-existing core findings; generated/schema/build outputs contributed 0 and were not edited.
+- T041 verification: scoped `data/src/main` Detekt checkstyle report empty; fresh `:data:testDebugUnitTest` XML 103 tests and `:core:test` XML 41 tests have 0 failures/errors/skips; `git diff --check` clean. Independent T041 spec-compliance and task-quality review: PASS with no findings.
