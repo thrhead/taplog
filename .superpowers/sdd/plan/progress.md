@@ -70,3 +70,4 @@ Task 21: complete (commit ef3972f9247d4081bb491adafd5c63b80e083208, review clean
 Ruling: T022 preserves adapter-owned Undo operation/before-image/consumed/invalidation-reason fields across core `DomainState` projections and context advances because the core receipt type cannot author them. Operation/before-image pairs, invalidation enums, scope triples, and numeric revisions remain validated fail-closed; absent Event references are allowed. This resolves the task/data-model requirement without schema or core changes.
 Task 22: fix round 1/5 (1 addressed — consumed/invalid/before-image retention; commits a279eeb..c4c7bc2)
 Task 22: complete (commits a279eeb..c4c7bc2, review clean; Android runtime/reopen/rollback deferred because no device)
+Task 23: complete (commit 7d6539d, review clean; focused and full `:data:testDebugUnitTest` passed)
