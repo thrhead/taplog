@@ -10,6 +10,8 @@ class EventEngine(private val boundary: AtomicCommitBoundary, private val clock:
     fun apply(command: Command): EngineResult {
         val before = boundary.read()
         return when (command) {
+            is CreateRecord -> createRecord(before, command)
+            is CreateTarget -> createTarget(before, command)
             is FinishDuration -> finish(before, command)
             is EditEvent -> editEvent(before, command)
             is DeleteEvent -> deleteEvent(before, command)
@@ -139,6 +141,49 @@ class EventEngine(private val boundary: AtomicCommitBoundary, private val clock:
         Behavior.STATE -> EventPayload.State(record.stateGroupId ?: StateGroupId("missing"), DatasetGeneration(0))
     }
 
+    private fun createRecord(before: DomainState, command: CreateRecord): EngineResult {
+        if (command.record.id in before.records) return conflict(ResultReason.STALE_REVISION)
+        validateExpected(before, null, command.expected)?.let { return it }
+        validateRecordForCreation(before, command.record)?.let { return it }
+        val record = DefinitionManagement.create(command.record)
+        val updated = before.copy(records = before.records + (record.id to record))
+        return commitDefinition(before, updated, record.id.value, record.revision)
+    }
+
+    private fun createTarget(before: DomainState, command: CreateTarget): EngineResult {
+        if (command.target.id in before.targets) return conflict(ResultReason.STALE_REVISION)
+        validateExpected(before, null, command.expected)?.let { return it }
+        if (command.target.name.isBlank()) return invalid(ResultReason.INVALID_REQUEST)
+        val target = DefinitionManagement.create(command.target)
+        val updated = before.copy(targets = before.targets + (target.id to target))
+        return commitDefinition(before, updated, target.id.value, target.revision)
+    }
+
+    private fun validateRecordForCreation(before: DomainState, record: Record): EngineResult? {
+        if (record.name.isBlank()) return invalid(ResultReason.INVALID_REQUEST)
+        val defaultQuantity = Quantity.exact("1")
+        return when (record.behavior) {
+            Behavior.COUNTER -> when {
+                record.stateGroupId != null -> invalid(ResultReason.INVALID_REQUEST)
+                record.defaultQuantity == null || !record.defaultQuantity.isValid ->
+                    invalid(ResultReason.INVALID_QUANTITY)
+                record.unit?.isValid == false -> invalid(ResultReason.UNIT_MISMATCH)
+                else -> null
+            }
+            Behavior.STATE -> when {
+                record.unit != null || record.defaultQuantity != defaultQuantity ->
+                    invalid(ResultReason.INVALID_REQUEST)
+                record.stateGroupId == null || record.stateGroupId !in before.stateGroups ->
+                    invalid(ResultReason.MISSING_STATE_GROUP)
+                else -> null
+            }
+            Behavior.MOMENT, Behavior.DURATION ->
+                if (record.unit != null || record.defaultQuantity != defaultQuantity || record.stateGroupId != null)
+                    invalid(ResultReason.INVALID_REQUEST)
+                else null
+        }
+    }
+
     private fun editEvent(before: DomainState, command: EditEvent): EngineResult {
         val event = before.events.firstOrNull { it.id == command.eventId } ?: return invalid(ResultReason.INVALID_REQUEST)
         if (command.expected?.revision != null && command.expected.revision != event.revision) return conflict(ResultReason.STALE_REVISION)
@@ -188,16 +233,20 @@ class EventEngine(private val boundary: AtomicCommitBoundary, private val clock:
     fun unarchiveRecord(recordId: RecordId): EngineResult = mutateDefinition { state ->
         state.records[recordId]?.let { state.copy(records = state.records + (recordId to DefinitionManagement.unarchive(it))) }
     }
+    fun link(recordId: RecordId, targetId: TargetId, expected: ExpectedContext? = null): EngineResult =
+        mutateRelationship(recordId, targetId, expected, requireExisting = false)
+    fun relink(recordId: RecordId, targetId: TargetId, expected: ExpectedContext? = null): EngineResult =
+        mutateRelationship(recordId, targetId, expected, requireExisting = true)
     fun unlink(recordId: RecordId, targetId: TargetId): EngineResult = lifecycle(recordId, targetId, null)
     fun editTarget(targetId: TargetId, change: TargetEdit): EngineResult = mutateDefinition { state ->
         val target = state.targets[targetId] ?: return@mutateDefinition null
         state.copy(targets = state.targets + (targetId to DefinitionManagement.edit(target, change)))
     }
     fun archiveTarget(targetId: TargetId): EngineResult = lifecycleTarget(targetId, Lifecycle.ARCHIVED)
-    fun unarchiveTarget(targetId: TargetId): EngineResult = mutateTarget(targetId, Lifecycle.ACTIVE)
-    private fun mutateTarget(targetId: TargetId, lifecycle: Lifecycle): EngineResult = mutateDefinition { state ->
+    fun unarchiveTarget(targetId: TargetId): EngineResult = mutateTarget(targetId)
+    private fun mutateTarget(targetId: TargetId): EngineResult = mutateDefinition { state ->
         val target = state.targets[targetId] ?: return@mutateDefinition null
-        state.copy(targets = state.targets + (targetId to target.copy(lifecycle = lifecycle)))
+        state.copy(targets = state.targets + (targetId to DefinitionManagement.unarchive(target)))
     }
     private fun lifecycleTarget(targetId: TargetId, lifecycle: Lifecycle): EngineResult {
         val before = boundary.read()
@@ -309,6 +358,51 @@ class EventEngine(private val boundary: AtomicCommitBoundary, private val clock:
         else if (boundary.commit(CommitOperation(before, updated))) EngineResult.Applied()
         else EngineResult.StorageFailure
     }
+
+    private fun mutateRelationship(
+        recordId: RecordId,
+        targetId: TargetId,
+        expected: ExpectedContext?,
+        requireExisting: Boolean,
+    ): EngineResult {
+        val before = boundary.read()
+        if (before.records[recordId]?.lifecycle != Lifecycle.ACTIVE ||
+            before.targets[targetId]?.lifecycle != Lifecycle.ACTIVE
+        ) return invalid(ResultReason.INACTIVE_SCOPE)
+        val relationship = before.relationships[recordId to targetId]
+        validateExpected(before, relationship?.revision, expected)?.let { return it }
+        val updatedRelationship = when {
+            requireExisting && relationship?.linked == false -> DefinitionManagement.relink(relationship)
+            !requireExisting && relationship == null -> DefinitionManagement.link(recordId, targetId)
+            else -> return invalid(ResultReason.INVALID_REQUEST)
+        }
+        val updated = before.copy(
+            relationships = before.relationships + ((recordId to targetId) to updatedRelationship),
+        )
+        return if (boundary.commit(CommitOperation(before, updated))) EngineResult.Applied()
+        else EngineResult.StorageFailure
+    }
+
+    private fun validateExpected(
+        before: DomainState,
+        actualRevision: Revision?,
+        expected: ExpectedContext?,
+    ): EngineResult? {
+        if (expected?.revision != null && expected.revision != actualRevision)
+            return conflict(ResultReason.STALE_REVISION)
+        if (expected?.datasetGeneration != null && expected.datasetGeneration != before.generation)
+            return conflict(ResultReason.STALE_DATASET_GENERATION)
+        return null
+    }
+
+    private fun commitDefinition(
+        before: DomainState,
+        updated: DomainState,
+        id: String,
+        revision: Revision,
+    ): EngineResult = if (boundary.commit(CommitOperation(before, updated)))
+        EngineResult.Applied(revisions = mapOf(id to revision))
+    else EngineResult.StorageFailure
 
     private fun validateScope(before: DomainState, record: Record, targetId: TargetId?, expected: ExpectedContext?): EngineResult? {
         if (record.lifecycle != Lifecycle.ACTIVE) return invalid(ResultReason.INACTIVE_SCOPE)

@@ -1,12 +1,27 @@
 package io.github.thrhead.taplog.core.engine
 
 import io.github.thrhead.taplog.core.domain.*
+import io.github.thrhead.taplog.core.domain.Target
 
 data class RecordEdit(val name: String? = null, val icon: String? = null, val defaultQuantity: Quantity? = null,
     val behavior: Behavior? = null, val unit: UnitName? = null)
 data class TargetEdit(val name: String? = null, val icon: String? = null)
 
 object DefinitionManagement {
+    fun create(record: Record): Record = record.copy(
+        lifecycle = Lifecycle.ACTIVE,
+        revision = Revision(0),
+        hasEvents = false,
+    )
+    fun create(target: Target): Target = target.copy(
+        lifecycle = Lifecycle.ACTIVE,
+        revision = Revision(0),
+    )
+    fun link(recordId: RecordId, targetId: TargetId): RecordTarget = RecordTarget(recordId, targetId)
+    fun relink(binding: RecordTarget): RecordTarget = binding.copy(
+        linked = true,
+        revision = Revision(binding.revision.value + 1),
+    )
     fun edit(record: Record, change: RecordEdit): Record {
         require(change.defaultQuantity == null || change.defaultQuantity.isValid)
         require(!record.hasEvents || (change.behavior == null || change.behavior == record.behavior))
