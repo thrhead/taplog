@@ -11,10 +11,12 @@ class ManagementRelationshipTest {
     @Test
     fun linkRequiresActiveExistingDefinitionsAndMakesThePairEligibleForFutureEvents() {
         val record = Record(RecordId("water"), "Water", "drop", Behavior.MOMENT)
+        val archivedRecord = Record(RecordId("archived-water"), "Archived Water", "drop", Behavior.MOMENT,
+            lifecycle = Lifecycle.ARCHIVED)
         val active = Target(TargetId("bottle"), "Bottle", "bottle")
         val archived = Target(TargetId("shelf"), "Shelf", "shelf", Lifecycle.ARCHIVED)
         val boundary = Boundary(DomainState(
-            records = mapOf(record.id to record),
+            records = mapOf(record.id to record, archivedRecord.id to archivedRecord),
             targets = mapOf(active.id to active, archived.id to archived),
             generation = DatasetGeneration(7),
         ))
@@ -25,6 +27,8 @@ class ManagementRelationshipTest {
         assertTrue(engine.apply(LogMoment(record.id, active.id, source = Source.APP)) is EngineResult.Applied)
 
         val afterActiveLink = boundary.state
+        assertEquals(EngineResult.Invalid(ResultReason.INACTIVE_SCOPE), engine.link(archivedRecord.id, active.id))
+        assertEquals(EngineResult.Invalid(ResultReason.INACTIVE_SCOPE), engine.link(RecordId("missing-record"), active.id))
         assertEquals(EngineResult.Invalid(ResultReason.INACTIVE_SCOPE), engine.link(record.id, archived.id))
         assertEquals(EngineResult.Invalid(ResultReason.INACTIVE_SCOPE), engine.link(record.id, TargetId("missing")))
         assertEquals(afterActiveLink, boundary.state)
@@ -47,6 +51,10 @@ class ManagementRelationshipTest {
             fixture.boundary.state.bindings.getValue(fixture.durationBinding.bindingId))
         assertEquals(fixture.stateBinding, fixture.boundary.state.bindings.getValue(fixture.stateBinding.bindingId))
         assertFalse(fixture.durationReceipt.receiptId in fixture.boundary.state.undoReceipts)
+        val afterDurationUnlink = fixture.boundary.state
+        assertEquals(EngineResult.Invalid(ResultReason.UNLINKED_RELATIONSHIP),
+            fixture.engine.apply(StartDuration(fixture.durationRecord.id, fixture.target.id, source = Source.APP)))
+        assertEquals(afterDurationUnlink, fixture.boundary.state)
 
         assertTrue(fixture.engine.unlink(fixture.stateRecord.id, fixture.target.id) is EngineResult.Applied)
         assertEquals(RecordTarget(fixture.stateRecord.id, fixture.target.id, linked = false, revision = Revision(9)),

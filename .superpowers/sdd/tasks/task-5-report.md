@@ -11,8 +11,8 @@ file was changed.
 
 - Link accepts an active Record and active Target, creates a linked pair at
   revision zero, and makes that pair eligible for a new Moment Event.
-- Link rejects archived and nonexistent Targets as `Invalid(INACTIVE_SCOPE)`
-  without mutating the successfully linked aggregate.
+- Link rejects archived and nonexistent Records and Targets as
+  `Invalid(INACTIVE_SCOPE)` without mutating the successfully linked aggregate.
 - Unlink advances only the selected relationship revision, blocks its future
   eligibility through the existing engine, marks an open Duration terminal,
   orphans affected bindings, invalidates affected Undo receipts, and resets an
@@ -67,9 +67,49 @@ not claim the T005 tests executed or independently observed RED at runtime.
 - The contract deliberately preserves T003 unchanged. T007 must provide the
   four missing compile symbols without weakening these tests.
 
+## Deferred review ledger
+
+- Minor: assert the full `Applied` relationship revision/lifecycle-effect
+  payloads for lifecycle operations. The current contracts assert their
+  observable aggregate effects; expanding result-payload coverage is deferred
+  to avoid broadening this Important-only T005 fix round.
+
 ## Concerns
 
 - Current shared-core compilation cannot prove the unlink assertions execute
   until T007 resolves the existing T003 creation references. The new link and
   relink references are intentional forward contracts, not production fixes in
   T005.
+
+## Fix round 1 — review findings
+
+Updated only the T005 test and this report:
+
+- The link contract now rejects both archived and nonexistent Records as well
+  as inactive/nonexistent Targets, with an unchanged aggregate assertion after
+  all rejected attempts.
+- The unlink contract now sends `StartDuration` for the unlinked pair and
+  asserts `Invalid(UNLINKED_RELATIONSHIP)` with no added Event or other state
+  mutation.
+- The review's Minor result-payload observation is recorded in the deferred
+  review ledger above; it was intentionally not broadened in this
+  Important-only fix round.
+
+Focused rerun command:
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon \
+  -Djava.net.preferIPv4Stack=true :core:test \
+  --tests 'io.github.thrhead.taplog.core.engine.ManagementRelationshipTest' \
+  --offline --console=plain
+```
+
+Result: exit 1 / `BUILD FAILED in 20s`, before test compilation or execution.
+This environment's new Gradle cache did not contain the pinned
+`com.android.application` 9.4.0 plugin, so root build configuration failed
+with `Plugin [id: 'com.android.application', version: '9.4.0', apply: false]
+was not found`. Accordingly, no T005 test execution is claimed. The known T003
+`CreateRecord`/`CreateTarget` compilation blocker was neither changed nor
+re-evaluated by this cache-resolution failure; its prior captured diagnostics
+remain the relevant shared-core compile gate. `git diff --check` remains exit
+0 after this fix.
