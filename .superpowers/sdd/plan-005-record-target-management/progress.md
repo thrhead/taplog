@@ -2,9 +2,9 @@
 
 ## Scope and recovery
 
-This resumed execution is limited to T008. T001–T007 are complete; T007's final ledger commit is `f987a45`. Existing branch `005-record-target-management` is the isolated feature workspace. Do not begin T009.
+This resumed execution completed T009 and stops at its boundary. T001–T009 are complete; T008's final commit was `a125933`, and T009's test commit is `3fe05be`. Existing branch `005-record-target-management` is the dedicated feature workspace. T010 is not started; wait for explicit user `CONTINUE` before proceeding.
 
-## Preflight
+## T007 preflight (recorded at that task's start)
 
 | Check | Result |
 |---|---|
@@ -43,3 +43,14 @@ Complete in commits `ed1881f` and `35ed87a`.
 - Independent code-quality review found repeated factory calls created uncloseable Room instances. The factory now uses a synchronized process-scoped holder; scoped re-review approved with no open findings.
 - No schema, migration, Room visibility, persistence strategy, or Boolean commit semantics changed. No T009 test or task was started.
 - Task boundary: T008 complete. T009 not started. T006 deferred name-based standalone Target deletion guard remains preserved for its appropriate verification task.
+
+## T009 resumption reconciliation (2026-09-23)
+
+- Verified `005-record-target-management` is the current branch, the working tree was clean at `a125933`, and `a125933` recorded T008 completion. Actual history includes T008 implementation commits `ed1881f` and `35ed87a`, followed by the T008 ledger/review commit `a125933`.
+- Read `AGENTS.md`, the full T009 task text, the approved 005 spec/plan/contracts and the 004 persistence contract. The five 005 clarifications remain binding. Graft located the public management port/adapter, existing aggregate round-trip coverage, and `InMemoryLocalPersistence` fixture. No canonical specification or task-list artifact was changed.
+- T009 adds only `data/src/test/kotlin/io/github/thrhead/taplog/data/persistence/ManagementPersistenceAdapterTest.kt`. It exercises complete aggregate round-trip; real `EventEngine` lifecycle and pair-deletion diffs through `ManagementPersistenceAdapter`; Boolean stale compare rejection with unchanged aggregate; and core `StorageFailure` mapping with no published proposal. The existing fixture provides atomic compare/write and failure injection; Room/repository behavior remains covered by 004.
+- TDD applicability: this is test-only coverage for T008 and earlier behavior. There is no meaningful production RED phase without adding an unrequested behavior change. The first test execution exposed one incorrect expected fixture state; after aligning with core's lifecycle output, the controller's fresh focused run passed.
+- Focused command: `GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon -Djava.net.preferIPv4Stack=true :data:testDebugUnitTest --tests 'io.github.thrhead.taplog.data.persistence.ManagementPersistenceAdapterTest' --console=plain` — exit 0, `BUILD SUCCESSFUL in 1m 25s`, 19 actionable tasks (3 executed, 16 up-to-date). `git diff --check HEAD~1 HEAD` passed for the task commit.
+- Independent spec-compliance review: APPROVED, no findings; reviewed exact scope, atomic Boolean semantics, lifecycle/deletion core ownership, preserved no-Target history, and no out-of-scope changes. Evidence: `spec-review-t009.md`.
+- Independent code-quality review: APPROVED, no findings; tests exercise real adapter/core behavior with meaningful complete-state assertions and focused fixtures. Evidence: `quality-review-t009.md`.
+- Task commit: `3fe05be test(data): cover management persistence adapter boundary` (only the named JVM test file). No known blocked tests at the T009 boundary. T010 has not started and must not start until explicit user `CONTINUE`.
