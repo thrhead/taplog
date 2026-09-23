@@ -113,3 +113,24 @@ was not found`. Accordingly, no T005 test execution is claimed. The known T003
 re-evaluated by this cache-resolution failure; its prior captured diagnostics
 remain the relevant shared-core compile gate. `git diff --check` remains exit
 0 after this fix.
+
+## Controller verification after scoped re-review
+
+Fresh focused command:
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon \
+  -Djava.net.preferIPv4Stack=true :core:test \
+  --tests 'io.github.thrhead.taplog.core.engine.ManagementRelationshipTest' \
+  --offline --console=plain --stacktrace
+```
+
+Result: exit 1 / `BUILD FAILED in 32s` at `:core:compileTestKotlin`; no test
+method executed. The compiler emitted 14 unresolved T003/T007 references to
+`CreateRecord`/`CreateTarget` in `ManagementCreationTest.kt`, plus unresolved
+T005 `EventEngine.link` references at `ManagementRelationshipTest.kt:25,30-33`
+and `EventEngine.relink` at `ManagementRelationshipTest.kt:94`. The latter
+are the intentional forward contracts covered by this task and slated for
+T007. This fresh result supersedes the cache-resolution failure above as the
+latest controller verification and confirms the T003 dependency remains
+untouched.
