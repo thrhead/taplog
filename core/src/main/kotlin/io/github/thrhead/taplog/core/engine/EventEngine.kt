@@ -237,7 +237,8 @@ class EventEngine(private val boundary: AtomicCommitBoundary, private val clock:
         mutateRelationship(recordId, targetId, expected, requireExisting = false)
     fun relink(recordId: RecordId, targetId: TargetId, expected: ExpectedContext? = null): EngineResult =
         mutateRelationship(recordId, targetId, expected, requireExisting = true)
-    fun unlink(recordId: RecordId, targetId: TargetId): EngineResult = lifecycle(recordId, targetId, null)
+    fun unlink(recordId: RecordId, targetId: TargetId, expected: ExpectedContext? = null): EngineResult =
+        lifecycle(recordId, targetId, null, expected)
     fun editTarget(targetId: TargetId, change: TargetEdit): EngineResult = mutateDefinition { state ->
         val target = state.targets[targetId] ?: return@mutateDefinition null
         state.copy(targets = state.targets + (targetId to DefinitionManagement.edit(target, change)))
@@ -277,9 +278,16 @@ class EventEngine(private val boundary: AtomicCommitBoundary, private val clock:
             recordId to (records[recordId]?.revision ?: Revision(0)))
     }
 
-    private fun lifecycle(recordId: RecordId, targetId: TargetId?, lifecycle: Lifecycle?): EngineResult {
+    private fun lifecycle(
+        recordId: RecordId,
+        targetId: TargetId?,
+        lifecycle: Lifecycle?,
+        expected: ExpectedContext? = null,
+    ): EngineResult {
         val before = boundary.read()
         val record = before.records[recordId] ?: return invalid(ResultReason.INVALID_REQUEST)
+        val relationshipRevision = targetId?.let { before.relationships[recordId to it]?.revision }
+        validateExpected(before, relationshipRevision, expected)?.let { return it }
         var next = if (lifecycle != null) before.copy(records = before.records + (recordId to record.copy(lifecycle = lifecycle,
             revision = Revision(record.revision.value + 1)))) else before
         val update = applyLifecycle(next, recordId, targetId, lifecycle)

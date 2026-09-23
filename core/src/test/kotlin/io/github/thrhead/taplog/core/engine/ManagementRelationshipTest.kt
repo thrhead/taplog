@@ -103,6 +103,101 @@ class ManagementRelationshipTest {
         assertEquals("Bottle", historicalEvent.snapshot.targetName)
     }
 
+    @Test
+    fun staleRelationshipContextsConflictBeforeLinkRelinkOrUnlinkCommit() {
+        val record = Record(RecordId("water"), "Water", null, Behavior.MOMENT)
+        val target = Target(TargetId("bottle"), "Bottle", null)
+        val linkedPair = RecordTarget(record.id, target.id, revision = Revision(5))
+        val linkedState = DomainState(
+            records = mapOf(record.id to record),
+            targets = mapOf(target.id to target),
+            relationships = mapOf((record.id to target.id) to linkedPair),
+            generation = DatasetGeneration(9),
+        )
+        val linkBoundary = Boundary(linkedState.copy(relationships = emptyMap()))
+        val relinkBoundary = Boundary(linkedState.copy(
+            relationships = mapOf((record.id to target.id) to linkedPair.copy(linked = false)),
+        ))
+        val unlinkBoundary = Boundary(linkedState)
+
+        assertEquals(
+            EngineResult.Conflict(ResultReason.STALE_DATASET_GENERATION),
+            engine(linkBoundary).link(
+                record.id,
+                target.id,
+                ExpectedContext(datasetGeneration = DatasetGeneration(8)),
+            ),
+        )
+        assertEquals(
+            EngineResult.Conflict(ResultReason.STALE_REVISION),
+            engine(relinkBoundary).relink(
+                record.id,
+                target.id,
+                ExpectedContext(revision = Revision(4)),
+            ),
+        )
+        assertEquals(
+            EngineResult.Conflict(ResultReason.STALE_REVISION),
+            engine(unlinkBoundary).unlink(
+                record.id,
+                target.id,
+                ExpectedContext(revision = Revision(4)),
+            ),
+        )
+        assertEquals(
+            EngineResult.Conflict(ResultReason.STALE_DATASET_GENERATION),
+            engine(unlinkBoundary).unlink(
+                record.id,
+                target.id,
+                ExpectedContext(revision = Revision(5), datasetGeneration = DatasetGeneration(8)),
+            ),
+        )
+        assertEquals(linkedState.copy(relationships = emptyMap()), linkBoundary.state)
+        assertEquals(linkedState.copy(
+            relationships = mapOf((record.id to target.id) to linkedPair.copy(linked = false)),
+        ), relinkBoundary.state)
+        assertEquals(linkedState, unlinkBoundary.state)
+        assertEquals(0, linkBoundary.commitAttempts)
+        assertEquals(0, relinkBoundary.commitAttempts)
+        assertEquals(0, unlinkBoundary.commitAttempts)
+    }
+
+    @Test
+    fun rejectedLinkAndRelinkCommitsAreStorageFailuresAndPreserveState() {
+        val record = Record(RecordId("water"), "Water", null, Behavior.MOMENT)
+        val target = Target(TargetId("bottle"), "Bottle", null)
+        val linkState = DomainState(
+            records = mapOf(record.id to record),
+            targets = mapOf(target.id to target),
+            generation = DatasetGeneration(9),
+        )
+        val pair = RecordTarget(record.id, target.id, linked = false, revision = Revision(5))
+        val relinkState = linkState.copy(relationships = mapOf((record.id to target.id) to pair))
+        val linkBoundary = Boundary(linkState, rejectCommits = true)
+        val relinkBoundary = Boundary(relinkState, rejectCommits = true)
+
+        assertEquals(
+            EngineResult.StorageFailure,
+            engine(linkBoundary).link(
+                record.id,
+                target.id,
+                ExpectedContext(datasetGeneration = linkState.generation),
+            ),
+        )
+        assertEquals(
+            EngineResult.StorageFailure,
+            engine(relinkBoundary).relink(
+                record.id,
+                target.id,
+                ExpectedContext(revision = pair.revision, datasetGeneration = relinkState.generation),
+            ),
+        )
+        assertEquals(linkState, linkBoundary.state)
+        assertEquals(relinkState, relinkBoundary.state)
+        assertEquals(1, linkBoundary.commitAttempts)
+        assertEquals(1, relinkBoundary.commitAttempts)
+    }
+
     private fun engine(boundary: Boundary) = EventEngine(boundary, object : AcceptanceClock {
         override fun now() = EpochMillis(1_000)
     }, idGenerator = { EventId("new-event") })
@@ -154,11 +249,13 @@ class ManagementRelationshipTest {
         )
     }
 
-    private class Boundary(initial: DomainState) : AtomicCommitBoundary {
+    private class Boundary(initial: DomainState, private val rejectCommits: Boolean = false) : AtomicCommitBoundary {
         var state = initial
+        var commitAttempts = 0
         override fun read() = state
         override fun commit(operation: CommitOperation): Boolean {
-            if (operation.expected != state) return false
+            commitAttempts += 1
+            if (rejectCommits || operation.expected != state) return false
             state = operation.state
             return true
         }

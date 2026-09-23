@@ -260,18 +260,75 @@ class ManagementCreationTest {
         assertFalse(boundary.committed)
     }
 
+    @Test
+    fun staleCreationDatasetContextConflictsWithoutCommit() {
+        val before = DomainState(generation = DatasetGeneration(7))
+        val boundary = Boundary(before)
+        val engine = engine(boundary)
+        val stale = ExpectedContext(datasetGeneration = DatasetGeneration(6))
+
+        assertEquals(
+            EngineResult.Conflict(ResultReason.STALE_DATASET_GENERATION),
+            engine.apply(CreateRecord(
+                Record(RecordId("water"), "Water", null, Behavior.MOMENT),
+                source = Source.APP,
+                expected = stale,
+            )),
+        )
+        assertEquals(
+            EngineResult.Conflict(ResultReason.STALE_DATASET_GENERATION),
+            engine.apply(CreateTarget(
+                Target(TargetId("bottle"), "Bottle", null),
+                source = Source.APP,
+                expected = stale,
+            )),
+        )
+        assertEquals(before, boundary.state)
+        assertEquals(0, boundary.commitAttempts)
+    }
+
+    @Test
+    fun rejectedCreationCommitsAreStorageFailuresAndPreserveState() {
+        val before = DomainState(generation = DatasetGeneration(7))
+        val recordBoundary = Boundary(before, rejectCommits = true)
+        val targetBoundary = Boundary(before, rejectCommits = true)
+
+        assertEquals(
+            EngineResult.StorageFailure,
+            engine(recordBoundary).apply(CreateRecord(
+                Record(RecordId("water"), "Water", null, Behavior.MOMENT),
+                source = Source.APP,
+                expected = ExpectedContext(datasetGeneration = before.generation),
+            )),
+        )
+        assertEquals(
+            EngineResult.StorageFailure,
+            engine(targetBoundary).apply(CreateTarget(
+                Target(TargetId("bottle"), "Bottle", null),
+                source = Source.APP,
+                expected = ExpectedContext(datasetGeneration = before.generation),
+            )),
+        )
+        assertEquals(before, recordBoundary.state)
+        assertEquals(before, targetBoundary.state)
+        assertEquals(1, recordBoundary.commitAttempts)
+        assertEquals(1, targetBoundary.commitAttempts)
+    }
+
     private fun engine(boundary: Boundary) = EventEngine(boundary, object : AcceptanceClock {
         override fun now() = EpochMillis(1_000)
     })
 
-    private class Boundary(initial: DomainState) : AtomicCommitBoundary {
+    private class Boundary(initial: DomainState, private val rejectCommits: Boolean = false) : AtomicCommitBoundary {
         var state = initial
         var committed = false
+        var commitAttempts = 0
 
         override fun read() = state
 
         override fun commit(operation: CommitOperation): Boolean {
-            if (operation.expected != state) return false
+            commitAttempts += 1
+            if (rejectCommits || operation.expected != state) return false
             state = operation.state
             committed = true
             return true
