@@ -160,3 +160,20 @@ after `:core:compileKotlin`, `:core:classes`, and `:core:jar` were up-to-date,
 then the harness returned before test compilation completed. No new T006
 diagnostic or PASS is claimed. The required shared compile verification remains
 blocked until T007.
+
+Controller focused rerun on commit `84cb0e7` (2026-09-23):
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon \
+  -Djava.net.preferIPv4Stack=true :core:test \
+  --tests 'io.github.thrhead.taplog.core.engine.ManagementDeletionTest' \
+  --console=plain
+```
+
+Result: `BUILD FAILED` (exit 1) at `:core:compileTestKotlin`; no test methods
+ran. It reported exactly the 14 existing T003 `CreateRecord`/`CreateTarget`
+references and 6 existing T005 `EventEngine.link`/`relink` references, with no
+diagnostic in `ManagementDeletionTest.kt`. This completed controller result
+supersedes the worker's incomplete rerun and confirms the round-three T006
+compile error is fixed. No PASS is claimed because shared compilation is still
+blocked by the scheduled T003/T005 work.
