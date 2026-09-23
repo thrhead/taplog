@@ -142,3 +142,21 @@ controller focused run after the type fix remains the completed shared compile
 evidence: exit 1 at `:core:compileTestKotlin`, exactly 14 T003 and 6 T005
 unresolved references, no T006 diagnostics, and no tests executed. No PASS is
 claimed.
+
+## Fix round 3 — explicit JVM method-name mapping
+
+The round-two controller compile found three T006 errors on the function
+reference `deletionMethods.map(::normalizedJvmMethodName)`: its elements are
+reflection `Method` objects, while the normalizer accepts a `String`. The test
+now maps explicitly with `method.name`, preserving the normalized public-method
+and sealed-command deletion guards.
+
+The controller's pre-fix focused command reached `:core:compileTestKotlin` and
+reported those three line-17 T006 inference/inapplicable-reference errors plus
+the known 14 T003 and 6 T005 unresolved references; it then reported `BUILD
+FAILED`, and no test method ran. The worker reran the same focused command
+after the one-line fix; its actual output reached `:core:processTestResources`
+after `:core:compileKotlin`, `:core:classes`, and `:core:jar` were up-to-date,
+then the harness returned before test compilation completed. No new T006
+diagnostic or PASS is claimed. The required shared compile verification remains
+blocked until T007.

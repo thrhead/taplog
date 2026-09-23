@@ -14,7 +14,7 @@ class ManagementDeletionTest {
             it.declaringClass == EventEngine::class.java && it.name.contains("delete", ignoreCase = true)
         }
 
-        assertEquals(setOf("deleteScope"), deletionMethods.map(::normalizedJvmMethodName).toSet())
+        assertEquals(setOf("deleteScope"), deletionMethods.map { method -> normalizedJvmMethodName(method.name) }.toSet())
         assertFalse(Command::class.java.permittedSubclasses.any {
             it.simpleName.contains("delete", ignoreCase = true) && it.simpleName.contains("target", ignoreCase = true)
         })
