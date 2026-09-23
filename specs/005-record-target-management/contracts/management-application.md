@@ -25,6 +25,10 @@ Raw exceptions are not user-facing result text.
 - Archive, unarchive, link, unlink, and relink execute directly after intent validation.
 - Permanent deletion has two calls: read-only preview, then explicit confirmed mutation. Cancel, dismissal, or absent confirmation performs no commit.
 - The app supplies ExpectedContext from displayed entity/relationship and dataset state where supported.
+- A stale expected entity, relationship, lifecycle, or dataset context detected
+  before commit maps to Conflict. The Boolean commit boundary has no typed
+  commit-conflict result: a commit-time stale comparison or rejection returns
+  false, which EventEngine maps to StorageFailure.
 - The app never performs a direct DAO write or derives lifecycle effects, deletion impact, snapshots, or revision values.
 
 ## Read states

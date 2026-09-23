@@ -78,7 +78,7 @@ eligibility, revisions, deterministic results, and preserved history.
 6. **Given** an active Record, **When** the user archives it, **Then** it leaves
    active management and creation choices, relevant lifecycle effects are
    applied by core, and its identity/history remain available in archive views.
-7. **Given** an archived Record, **When** the user confirms unarchive, **Then**
+7. **Given** an archived Record, **When** the user unarchives it, **Then**
    it becomes active with the same identity, preserved history, and a new
    revision; terminal Duration/State effects are not reversed.
 8. **Given** an archived or otherwise deletable Record, **When** the user opens
@@ -96,9 +96,10 @@ multiple Records.
 **Why this priority**: Targets are independent V1 entities and are needed to
 express the PRD's reusable Record–Target model.
 
-**Independent Test**: Create, edit, archive, unarchive, and delete a Target
-under the core deletion rules; verify identity, revisions, historical display
-snapshots, and orphaning effects.
+**Independent Test**: Create, edit, archive, and unarchive a Target; verify
+identity, revisions, historical display snapshots, and orphaning effects; and
+verify that standalone permanent Target deletion is unavailable and cannot
+mutate persisted data.
 
 **Acceptance Scenarios**:
 
@@ -109,7 +110,7 @@ snapshots, and orphaning effects.
    remain unchanged.
 3. **Given** an active Target, **When** the user archives it, **Then** it is
    excluded from active Target choices and its relationships/history are kept.
-4. **Given** an archived Target, **When** the user confirms unarchive, **Then**
+4. **Given** an archived Target, **When** the user unarchives it, **Then**
    it returns to active eligibility without automatically rebinding orphaned
    channel bindings or reversing terminal lifecycle effects.
 5. **Given** a Record–Target scope with related history, **When** permanent
@@ -265,14 +266,18 @@ results and persisted state.
 - **FR-022**: Management operations MUST use the existing core
   management functions, commands/results, and persistence transaction boundary;
   this feature MUST NOT add a competing management engine or persistence API.
-- **FR-023**: Every operation MUST resolve to deterministic Applied,
+- **FR-023**: Every mutating operation MUST resolve to deterministic Applied,
   NeedsConfirmation, Conflict, Invalid, or StorageFailure handling as defined by
   core. The application MUST preserve the core result category and stable
   `ResultReason` as the decision key and map it to user-facing localized copy;
   it MUST NOT display raw exception text as the management result. Applied is
   shown only after commit; feedback failure cannot undo commit.
-- **FR-024**: Stale entity revision, relationship revision, lifecycle context, or
-  dataset generation MUST result in Conflict without overwriting newer state.
+- **FR-024**: Pre-commit command-level detection of a stale entity revision,
+  relationship revision, lifecycle context, or dataset generation MUST result
+  in Conflict without overwriting newer state. `AtomicCommitBoundary.commit()`
+  remains Boolean: a commit-time stale comparison or rejection returns `false`,
+  and EventEngine maps that `false` result to StorageFailure. This feature MUST
+  NOT introduce typed commit-conflict semantics.
 - **FR-025**: Management MUST be local-first: creating, editing, assigning,
   archiving, unarchiving, and permitted deletion require no account, network,
   server, or AI availability.

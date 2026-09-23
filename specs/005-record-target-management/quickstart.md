@@ -20,10 +20,11 @@ Expected critical flows:
 
 1. Open management from the app shell; active and archived empty/list states render.
 2. Create Moment, Counter, Duration, and State Records with behavior-valid fields; omitted Counter default is 1.
-3. Create/edit/archive/unarchive a Target; no standalone permanent-delete action is offered.
+3. Create/edit/archive/unarchive a Target; no standalone permanent-delete action is offered, and an attempted standalone deletion cannot mutate persisted data.
 4. Edit a Record before and after an Event; name/icon/default quantity changes succeed, behavior/unit changes after the first Event show deterministic rejection.
 5. Link, unlink, and explicitly relink an active Record–Target pair. New Events become eligible after relink while historical orphaned bindings and snapshots remain unchanged.
 6. Open permanent deletion and verify exact core impact; cancel leaves state unchanged, confirmation commits only the requested scope.
+7. Verify that pre-commit stale expected context produces Conflict, while a commit-time Boolean rejection is surfaced as StorageFailure; no typed commit-conflict result is introduced.
 
 ## Restart validation
 

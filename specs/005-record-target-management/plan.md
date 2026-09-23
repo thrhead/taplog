@@ -22,7 +22,10 @@ Target Platform: Android application, minSdk 26, local-first/offline, Compose UI
 
 Project Type: Three-module Android mobile application (:core Kotlin/JVM, :data persistence, :app presentation/orchestration).
 
-Performance Goals: Management list and mutation feedback remain local and responsive for the existing aggregate scale; no network or background sync is required. Exact benchmarking is not a 005 scope.
+Performance Goals: Management list loading and mutation feedback are qualitative
+  design goals for the existing local aggregate scale: they should remain usable
+  without network or background sync. 005 introduces no benchmark or performance
+  guarantee.
 
 Constraints: :core remains Android/framework independent; :app cannot mutate persistence or access DAOs; historical Events/snapshots are immutable under ordinary management; only permanent deletion is confirmation-gated; no standalone Target deletion; no Home dashboard, Timeline, Duration/State execution UX, NFC, Widget, Quick Settings, parser, backup, statistics, monetization, AI, or sync.
 
@@ -70,7 +73,11 @@ Every mutating use case reads the latest state immediately before invocation and
 
 - Record, Target, RecordTarget identities/revisions, Record.hasEvents, LifecycleEffect, DeleteImpact, DeleteConfirmation, EngineResult, and ResultReason remain authoritative.
 - Existing 003 methods cover edit/archive/unarchive/unlink and scope deletion. Creation and explicit relink are missing from the current implementation and must be added as compatible extensions to the existing engine/management seam, with pure JVM contract tests first.
-- AtomicCommitBoundary.commit(CommitOperation): Boolean is preserved. A false compare/write result remains mapped by the existing engine to StorageFailure; app must not relabel it as a typed conflict. Expected-context checks provide deterministic Conflict before commit.
+- AtomicCommitBoundary.commit(CommitOperation): Boolean is preserved. Pre-commit
+  expected-context checks provide deterministic Conflict. A commit-time stale
+  comparison, rejection, or other compare/write failure returns false and
+  remains mapped by EventEngine to StorageFailure; app must not introduce typed
+  commit-conflict semantics or relabel that result as Conflict.
 - 004 persistence retains Target definitions for permanent deletion and applies only the core-produced deletion diff. No standalone Target delete, Room DAO exposure, migration, or schema version change is planned.
 - Existing lifecycle logic can terminalize open Duration events, reset State generations, orphan bindings, and invalidate Undo metadata. App displays returned effects but does not reproduce those rules.
 - Historical Event snapshots are stored in Event rows and must not be regenerated from edited live definitions.

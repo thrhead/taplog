@@ -41,5 +41,8 @@
 - Revisions are monotonic per entity/relationship; no global mutationRevision is introduced.
 - Active Event creation choices exclude archived Records, archived Targets, and unlinked pairs.
 - Ordinary management never changes an Event identity or snapshot.
-- A stale revision, dataset generation, lifecycle context, or relationship context cannot overwrite newer state.
+- A stale revision, dataset generation, lifecycle context, or relationship
+  context cannot overwrite newer state. Command-level stale detection returns
+  Conflict before commit; a commit-time Boolean rejection is surfaced as
+  StorageFailure according to the approved 004 boundary.
 - A committed operation survives restart; an interrupted operation cannot produce a partial aggregate.

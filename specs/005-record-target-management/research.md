@@ -52,5 +52,9 @@ Alternatives considered: Building Home first, adding a generic dashboard, or cre
 
 - :core is Kotlin/JVM and cannot depend on Compose, Android lifecycle, Room, or localized resources.
 - AtomicCommitBoundary.commit remains Boolean; compare/write failure cannot be relabeled as a typed race Conflict by app code.
+- Command-level expected-context checks may return Conflict before commit. A
+  commit-time stale comparison or rejection returns false through the Boolean
+  boundary and is mapped by EventEngine to StorageFailure; no typed commit
+  conflict is introduced.
 - 004 schema is v1 with no migration edge planned for 005; no schema change is needed for management operations.
 - Existing core operations cover edit/archive/unarchive/unlink and deletion, but current source lacks create/relink and app-facing query composition. These are implementation gaps to resolve inside the approved seams, not reasons to redesign upstream contracts.

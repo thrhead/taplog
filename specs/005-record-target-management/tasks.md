@@ -30,8 +30,8 @@ description: "Implementation tasks for Record + Target Management"
 - [ ] T006 [P] Add JVM contract tests for exact null-target Record-wide and non-null Record–Target deletion scopes, `NeedsConfirmation`, cancel/missing confirmation no-op behavior, unrelated Target/no-Target history preservation, and unavailable standalone Target deletion in `core/src/test/kotlin/io/github/thrhead/taplog/core/engine/ManagementDeletionTest.kt`.
 - [ ] T007 Implement validated creation and explicit relink through the existing `EventEngine`/`DefinitionManagement` seam in `core/src/main/kotlin/io/github/thrhead/taplog/core/engine/DefinitionManagement.kt`, `core/src/main/kotlin/io/github/thrhead/taplog/core/engine/EventEngine.kt`, `core/src/main/kotlin/io/github/thrhead/taplog/core/engine/Commands.kt`, and `core/src/main/kotlin/io/github/thrhead/taplog/core/engine/Results.kt`; preserve authoritative `EngineResult`/`ResultReason`, expected-context conflict checks, atomic commit routing, and do not create a second management engine.
 - [ ] T008 Implement the minimum application-facing read/commit adapter over the existing aggregate and `AtomicCommitBoundary` in `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence/ManagementPersistencePort.kt` and `data/src/main/kotlin/io/github/thrhead/taplog/data/persistence/ManagementPersistenceAdapter.kt`; keep Room entities, DAOs, and `RoomLocalPersistence` internals inaccessible to `:app`, add no schema or competing persistence contract, and preserve `StorageFailure` semantics.
-- [ ] T009 Add focused JVM boundary tests for the data adapter’s aggregate round-trip, core-produced lifecycle/deletion diffs, compare/write failure, and no partial commit in `data/src/test/kotlin/io/github/thrhead/taplog/data/persistence/ManagementPersistenceAdapterTest.kt`; extend existing 004 fixtures only where the new relationship/creation state requires it and do not duplicate the full 004 repository suite.
-- [ ] T010 Run the Phase 2 core/data JVM tests and fix only contract-proven incompatibilities in `core/src/test/kotlin/io/github/thrhead/taplog/core/engine/` and `data/src/test/kotlin/io/github/thrhead/taplog/data/persistence/`; record any real 003/004 contract break as an upstream decision rather than silently changing persistence semantics.
+- [ ] T009 Add focused JVM boundary tests for the data adapter’s aggregate round-trip, core-produced lifecycle/deletion diffs, compare/write failure returning `false` for the Boolean boundary, and no partial commit in `data/src/test/kotlin/io/github/thrhead/taplog/data/persistence/ManagementPersistenceAdapterTest.kt`; extend existing 004 fixtures only where the new relationship/creation state requires it and do not duplicate the full 004 repository suite.
+- [ ] T010 Run the Phase 2 core/data JVM tests and fix only contract-proven incompatibilities in `core/src/test/kotlin/io/github/thrhead/taplog/core/engine/` and `data/src/test/kotlin/io/github/thrhead/taplog/data/persistence/`; verify pre-commit stale expected-context checks produce Conflict and commit-time Boolean rejection remains StorageFailure; record any real 003/004 contract break as an upstream decision rather than silently changing persistence semantics.
 
 **Checkpoint**: Core owns invariants/results/lifecycle/deletion semantics, data owns aggregate persistence, and no app code can reach Room/DAO internals.
 
@@ -69,7 +69,7 @@ description: "Implementation tasks for Record + Target Management"
 
 ### Tests for User Story 2
 
-- [ ] T019 [P] [US2] Add pure JVM tests for Target list/create/edit/archive/unarchive use cases, required-name validation, monotonic revision propagation, active/archived filters, and explicit absence of standalone Target deletion in `app/src/test/kotlin/io/github/thrhead/taplog/management/targets/TargetManagementUseCaseTest.kt`.
+- [ ] T019 [P] [US2] Add pure JVM tests for Target list/create/edit/archive/unarchive use cases, required-name validation, monotonic revision propagation, active/archived filters, and a dedicated `targetEditAfterEventsPreservesHistoricalSnapshots` case; also prove standalone Target deletion is unavailable and cannot mutate persisted data in `app/src/test/kotlin/io/github/thrhead/taplog/management/targets/TargetManagementUseCaseTest.kt`.
 - [ ] T020 [P] [US2] Add ViewModel/state-holder tests for Target loading, empty/content/error states, refresh after mutation, conflict handling, restart-safe re-read, and no delete action in `app/src/test/kotlin/io/github/thrhead/taplog/management/targets/TargetManagementViewModelTest.kt`.
 
 ### Implementation for User Story 2
@@ -141,6 +141,7 @@ description: "Implementation tasks for Record + Target Management"
 - [ ] T044 Run `./gradlew :core:test :data:test :app:test` and `./gradlew :app:connectedDebugAndroidTest`, then fix failures within the scoped files and record any environment-only connected-test limitation rather than weakening assertions.
 - [ ] T045 Run `./gradlew :core:dependencies :data:dependencies :app:dependencies`, inspect for Android/Room leakage into `:core` or direct DAO access from `:app`, and verify `specs/005-record-target-management/quickstart.md` device-independent, connected, restart, and boundary checks are all represented.
 - [ ] T046 Run `graft build` after implementation changes and perform final checklist review against `specs/005-record-target-management/spec.md`, `plan.md`, contracts, PRD, constitution, and the explicit out-of-scope list; do not modify those canonical artifacts as part of task execution.
+- [ ] T047 After implementation and automated verification, conduct a usability validation with participants representative of intended V1 users; exclude implementation-team participants, document recruitment criteria and the tested Record-creation and Record–Target-assignment flows before sessions, measure completion without leaving the management flow or receiving an unexplained error, and accept SC-006 only if at least 95% of participants complete both flows. Record observations and results without fabricating or presupposing a pass.
 
 ---
 
@@ -152,7 +153,10 @@ description: "Implementation tasks for Record + Target Management"
 - **Phase 2** depends on Phase 1. T003–T006 are independent test files and can run in parallel; T007 depends on T003–T006; T008 depends on the public core/data boundary decisions in T007; T009 depends on T008; T010 gates all stories.
 - **User Stories 1–3** depend on T010. They are independently reviewable after the foundation, but their UI tasks should not be merged into the same files concurrently; US3 also depends on the core relink and data adapter behavior validated by Phase 2.
 - **User Story 4** depends on the application outcome shape from US1–US3 and should follow their use-case/state-holder interfaces; its pure mapper test T033 may start after T007 if the result contract is stable.
-- **Phase 7** depends on all desired stories, with T041 also depending on T032 and T044–T046 depending on all implementation and test tasks.
+- **Phase 7** depends on all desired stories. T041 depends on T032; T044 and
+  T045 depend on all implementation and test tasks; T047 depends on the
+  implemented management flows plus T044 and T045; and T046 performs the final
+  checklist after T047.
 
 ### Story Dependencies
 
@@ -180,6 +184,10 @@ After the corresponding tests:
 After story interfaces stabilize:
   T033, T034, T035         (US4 tests)
   T041, T042               (final verification support)
+After automated verification:
+  T047                     (post-implementation usability validation)
+After usability validation:
+  T046                     (final checklist)
 ```
 
 ## Implementation Strategy
@@ -210,5 +218,8 @@ After story interfaces stabilize:
 - Core creation/relink and management result semantics trace to `specs/005-record-target-management/plan.md` and `research.md`.
 - Record behavior/default/unit rules trace to FR-002–FR-007 and `data-model.md`.
 - Lifecycle/history/orphan/relink rules trace to FR-008–FR-018 and the approved 003/004 contracts.
+- Target edit snapshot preservation and standalone-deletion negative coverage trace to FR-011 and FR-014 through T019, with restart-facing preservation covered by T032 and T041.
+- Pre-commit Conflict versus commit-time Boolean `StorageFailure` semantics trace to FR-023–FR-024 and the approved 003/004 contracts through T009, T010, and T034.
 - App/data boundaries and deterministic UI mapping trace to FR-019–FR-026 and both management contracts.
 - Navigation, Compose states, exclusions, and verification trace to FR-027–FR-028 and `quickstart.md`.
+- Representative-user usability validation for SC-006 is explicitly scheduled in T047; no result is assumed before that task runs.

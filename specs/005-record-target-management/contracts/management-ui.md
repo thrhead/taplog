@@ -16,7 +16,7 @@ No Home dashboard, Timeline, Event execution, Duration/State execution, NFC, Wid
 
 ## Required screen states
 
-Each list and editor has deterministic loading, empty, content, invalid, conflict, storage-error, and success rendering as applicable. Destructive confirmation is used only for permanent deletion. Archive, unarchive, link, unlink, and relink have direct action affordances.
+Each list and editor has deterministic loading, empty, content, invalid, conflict, storage-error, and success rendering as applicable. Destructive confirmation is used only for permanent deletion. Archive, unarchive, link, unlink, and relink have direct action affordances and do not require confirmation.
 
 ## Localization contract
 
