@@ -18,9 +18,11 @@ All 30 new Kotlin files are zero-byte placeholders. The planned `CoreRuntimeInde
 - Compared the 30 newly created paths against the approved T002 roots and planned file names.
 - Confirmed every new Kotlin placeholder has size zero.
 - Ran `git diff --check` with no whitespace errors.
-- Attempted `:core:test :data:test :app:test` outside the sandbox because Gradle cannot start in the sandbox without a usable wildcard IP. Gradle began compiling but the execution ended before test-task completion or a final Gradle status line.
-- Attempted the narrower offline Kotlin compile lane: `:core:compileTestKotlin :data:compileDebugKotlin :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin`. Output reached the core test, data main, and app main Kotlin compilation targets, but likewise ended before the Android-test target and final Gradle status line.
+- Initial offline attempts were blocked by uncached AndroidX lifecycle and Android-test artifacts; these failures were environmental dependency-cache misses, not source failures.
+- Fresh online focused compile: `GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon -Djava.net.preferIPv4Stack=true :core:compileTestKotlin :data:compileDebugKotlin :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin --console=plain` — BUILD SUCCESSFUL; 41 actionable tasks, 1 executed, 40 up-to-date.
+- Fresh online device-independent suite: `GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon -Djava.net.preferIPv4Stack=true :core:test :data:test :app:test --console=plain` — BUILD SUCCESSFUL; 50 actionable tasks, 1 executed, 49 up-to-date.
+- `git diff --check` passed for the task changes.
 
 ## Concern
 
-Gradle verification is incomplete due to the execution environment ending the Gradle process/output before final task completion. This task contains no executable behavior or test scaffolds, and the source-level structural checks completed successfully.
+The connected Android test suite was not run because T002 has no connected-device requirement; the Android-test source compilation passed. This task contains no executable behavior or test scaffolds, and the source-level structural checks completed successfully.
