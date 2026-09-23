@@ -3,6 +3,7 @@ package io.github.thrhead.taplog.core.engine
 import io.github.thrhead.taplog.core.domain.Behavior
 import io.github.thrhead.taplog.core.domain.DatasetGeneration
 import io.github.thrhead.taplog.core.domain.EpochMillis
+import io.github.thrhead.taplog.core.domain.Lifecycle
 import io.github.thrhead.taplog.core.domain.Quantity
 import io.github.thrhead.taplog.core.domain.Record
 import io.github.thrhead.taplog.core.domain.RecordId
@@ -38,6 +39,7 @@ class ManagementCreationTest {
                 engine.apply(CreateRecord(record, source = Source.APP)),
             )
             assertEquals(record, boundary.state.records[record.id])
+            assertEquals(Lifecycle.ACTIVE, boundary.state.records.getValue(record.id).lifecycle)
         }
 
         assertTrue(boundary.state.events.isEmpty())
@@ -68,6 +70,7 @@ class ManagementCreationTest {
             engine(boundary).apply(CreateRecord(record, source = Source.APP)),
         )
         assertEquals(UnitName("cups"), boundary.state.records.getValue(record.id).unit)
+        assertEquals(Quantity.parse("2"), boundary.state.records.getValue(record.id).defaultQuantity)
     }
 
     @Test
@@ -144,6 +147,36 @@ class ManagementCreationTest {
     }
 
     @Test
+    fun recordCreationRejectsExplicitCounterQuantityForNonCounterBehaviors() {
+        val stateGroup = StateGroup(StateGroupId("moods"), "Moods")
+        val invalidRecords = listOf(
+            Record(
+                RecordId("moment-quantity"), "Water", null, Behavior.MOMENT,
+                defaultQuantity = Quantity.exact("2"),
+            ),
+            Record(
+                RecordId("duration-quantity"), "Focus", null, Behavior.DURATION,
+                defaultQuantity = Quantity.exact("2"),
+            ),
+            Record(
+                RecordId("state-quantity"), "Mood", null, Behavior.STATE,
+                defaultQuantity = Quantity.exact("2"), stateGroupId = stateGroup.id,
+            ),
+        )
+        val boundary = Boundary(DomainState(stateGroups = mapOf(stateGroup.id to stateGroup)))
+        val engine = engine(boundary)
+
+        invalidRecords.forEach { record ->
+            assertEquals(
+                EngineResult.Invalid(ResultReason.INVALID_REQUEST),
+                engine.apply(CreateRecord(record, source = Source.APP)),
+            )
+        }
+        assertFalse(boundary.committed)
+        assertTrue(boundary.state.records.isEmpty())
+    }
+
+    @Test
     fun stateRecordCreationRequiresAnExistingStateGroup() {
         val missingGroup = Record(RecordId("state-missing"), "Mood", null, Behavior.STATE)
         val unknownGroup = Record(
@@ -194,8 +227,11 @@ class ManagementCreationTest {
 
         assertEquals(record.id, boundary.state.records.getValue(record.id).id)
         assertEquals(Revision(0), boundary.state.records.getValue(record.id).revision)
+        assertEquals(Lifecycle.ACTIVE, boundary.state.records.getValue(record.id).lifecycle)
         assertEquals(target.id, boundary.state.targets.getValue(target.id).id)
+        assertEquals("Bottle", boundary.state.targets.getValue(target.id).name)
         assertEquals(Revision(0), boundary.state.targets.getValue(target.id).revision)
+        assertEquals(Lifecycle.ACTIVE, boundary.state.targets.getValue(target.id).lifecycle)
         assertEquals(DatasetGeneration(7), boundary.state.generation)
     }
 

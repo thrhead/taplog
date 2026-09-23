@@ -83,3 +83,45 @@ The intended unresolved-command RED state is the sole blocker. T007 must add
 the `CreateRecord` and `CreateTarget` command/engine handling while preserving
 these result categories and the existing atomic Boolean commit boundary; only
 then can this suite compile and exercise its assertion-level contracts.
+
+## Fix round 1/5 — review assertion strengthening
+
+Addressed the three Important findings in `ManagementCreationTest.kt` only:
+
+- The valid Counter-with-unit case now asserts the independently constructed
+  literal `Quantity.parse("2")` is stored, in addition to `UnitName("cups")`.
+- Added a separate `recordCreationRejectsExplicitCounterQuantityForNonCounterBehaviors`
+  test for Moment, Duration, and State Records. Each supplies the explicit
+  Counter quantity `2`; the State fixture supplies an otherwise valid State
+  Group, so the quantity is the invalid field under test.
+- Valid Record creation now asserts the stored `Lifecycle.ACTIVE` literal.
+  The successful Target creation now additionally asserts literal stored name
+  `"Bottle"` and `Lifecycle.ACTIVE`, independently of the input object.
+
+### Focused verification
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon -Djava.net.preferIPv4Stack=true :core:test --tests 'io.github.thrhead.taplog.core.engine.ManagementCreationTest' --console=plain
+```
+
+Output/result: exit `1` in 29 seconds. `:core:compileKotlin` was
+`UP-TO-DATE`; `:core:compileTestKotlin` failed only with unresolved
+`CreateRecord` at lines 39, 55, 70, 85, 103, 118, 142, 172, 192, 221, and 252,
+and unresolved `CreateTarget` at lines 206, 225, and 256 of
+`ManagementCreationTest.kt`. Gradle reported `BUILD FAILED`; no JVM tests ran
+because T007 has not introduced those commands.
+
+### Broad verification
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon -Djava.net.preferIPv4Stack=true :core:test --console=plain
+```
+
+Output/result: exit `1` in 27 seconds. `:core:compileKotlin` was
+`UP-TO-DATE`; `:core:compileTestKotlin` produced the identical and only 14
+unresolved command references listed above, then Gradle reported `BUILD
+FAILED`. No unrelated compilation or executed-test failure was reported.
+
+The intentional missing T007 API remains the only blocker. The review fix adds
+no production code and does not add `.kotlin/` or any other generated cache to
+the commit.
