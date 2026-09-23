@@ -39,6 +39,14 @@ GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon -Djava.net.preferIPv4S
 
 Result: exit 0, `BUILD SUCCESSFUL in 1m 25s`, 19 actionable tasks (3 executed, 16 up-to-date).
 
+Relevant data-module regression command:
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon -Djava.net.preferIPv4Stack=true :data:testDebugUnitTest --console=plain
+```
+
+The initial sandboxed start failed before task execution with the known wildcard-IP Gradle lock initialization error. The outside-sandbox rerun exited 0: `BUILD SUCCESSFUL in 29s`, 19 actionable tasks (1 executed, 18 up-to-date). Existing SQLite native-access and Gradle deprecation warnings were non-failing.
+
 `git diff --check` also exited 0 during self-review.
 
 ## Concerns
