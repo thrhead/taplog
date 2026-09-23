@@ -72,3 +72,42 @@ this worker's focused rerun.
 
 - T007 must implement the existing T003 creation and T005 link/relink forward
   contracts before a shared core test compile can execute this test class.
+
+## Fix round 1 — public Target-deletion contract and type collision
+
+Added `publicDeletionSurfaceProvidesRecordScopesAndNoStandaloneTargetDeletion`.
+It inspects only `EventEngine`'s public methods declared by the class and
+requires the sole public deletion entry point to be `deleteScope`, whose first
+parameter is `RecordId`. Thus a public standalone `deleteTarget(TargetId)` or
+another public deletion method fails the contract. The existing tests continue
+to assert that each permitted deletion scope retains Target definitions.
+
+The test was added before the compiler-fix edit. The controller's focused run
+then reported these new T006 compilation errors, separate from the known
+baseline T003/T005 blockers: passing domain `Target` where Kotlin resolved the
+annotation `Target?` at lines 92, 93, 95, 97, 98, and 100, followed by
+unresolved `id`, `name`, and `icon` accesses at lines 133, 135, 139. The test
+now imports the domain class as `DomainTarget` and uses that alias for both
+fixture construction and nullable helper parameters.
+
+Focused command rerun after the fix:
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon \
+  -Djava.net.preferIPv4Stack=true :core:test \
+  --tests 'io.github.thrhead.taplog.core.engine.ManagementDeletionTest' \
+  --offline --console=plain
+```
+
+The worker invocation reached `:core:processTestResources` after
+`:core:compileKotlin`, `:core:classes`, and `:core:jar` were up-to-date, then
+the harness returned without a completion line. The controller then reran the
+same focused command after the type fix. It exited 1 with `BUILD FAILED` at
+`:core:compileTestKotlin`, reporting exactly 14 known T003
+`CreateRecord`/`CreateTarget` unresolved references and 6 known T005
+`EventEngine.link`/`relink` unresolved references. It reported no
+`ManagementDeletionTest.kt` diagnostics and no tests ran. Thus the explicit
+`DomainTarget` alias resolves the T006 type collision; runtime RED/GREEN still
+cannot be claimed until T007 restores shared test compilation.
+
+`git diff --check` after this fix produced no whitespace output (exit 0).

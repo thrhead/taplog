@@ -1,12 +1,23 @@
 package io.github.thrhead.taplog.core.engine
 
 import io.github.thrhead.taplog.core.domain.*
+import io.github.thrhead.taplog.core.domain.Target as DomainTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ManagementDeletionTest {
+    @Test
+    fun publicDeletionSurfaceProvidesRecordScopesAndNoStandaloneTargetDeletion() {
+        val deletionMethods = EventEngine::class.java.methods.filter {
+            it.declaringClass == EventEngine::class.java && it.name.contains("delete", ignoreCase = true)
+        }
+
+        assertEquals(listOf("deleteScope"), deletionMethods.map { it.name })
+        assertEquals(RecordId::class.java, deletionMethods.single().parameterTypes.first())
+    }
+
     @Test
     fun previewAndMissingOrCancelledConfirmationLeaveTheExactScopeUnchanged() {
         val fixture = Fixture()
@@ -85,8 +96,8 @@ class ManagementDeletionTest {
     private class Fixture {
         val record = Record(RecordId("record"), "Record", "record", Behavior.MOMENT, hasEvents = true)
         private val unrelatedRecord = Record(RecordId("other"), "Other", "other", Behavior.MOMENT, hasEvents = true)
-        val firstTarget = Target(TargetId("first"), "First", "first")
-        val secondTarget = Target(TargetId("second"), "Second", "second")
+        val firstTarget = DomainTarget(TargetId("first"), "First", "first")
+        val secondTarget = DomainTarget(TargetId("second"), "Second", "second")
         private val firstRelationship = RecordTarget(record.id, firstTarget.id, revision = Revision(3))
         val secondRelationship = RecordTarget(record.id, secondTarget.id, revision = Revision(4))
         private val firstTargetEvent = event(EventId("first-target-event"), record, firstTarget)
@@ -129,13 +140,13 @@ class ManagementDeletionTest {
         ))
         val engine = EventEngine(boundary, object : AcceptanceClock { override fun now() = EpochMillis(1_000) })
 
-        private fun event(id: EventId, record: Record, target: Target?) = Event(
+        private fun event(id: EventId, record: Record, target: DomainTarget?) = Event(
             id, record.id, target?.id, record.behavior, EpochMillis(10), EpochMillis(10), EpochMillis(10),
             Sequence(1), Source.APP, Revision(0),
             EventSnapshot(record.name, record.icon, target?.name, target?.icon, record.behavior, record.unit), EventPayload.Moment,
         )
 
-        private fun binding(id: BindingId, record: Record, target: Target?) = BindingLifecycle(
+        private fun binding(id: BindingId, record: Record, target: DomainTarget?) = BindingLifecycle(
             id, record.id, target?.id, lastKnownDisplay = DisplaySnapshot(record.name, record.icon, target?.name, target?.icon),
         )
     }
