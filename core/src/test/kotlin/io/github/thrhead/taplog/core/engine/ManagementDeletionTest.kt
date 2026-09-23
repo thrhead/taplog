@@ -14,9 +14,13 @@ class ManagementDeletionTest {
             it.declaringClass == EventEngine::class.java && it.name.contains("delete", ignoreCase = true)
         }
 
-        assertEquals(listOf("deleteScope"), deletionMethods.map { it.name })
-        assertEquals(RecordId::class.java, deletionMethods.single().parameterTypes.first())
+        assertEquals(setOf("deleteScope"), deletionMethods.map(::normalizedJvmMethodName).toSet())
+        assertFalse(Command::class.java.permittedSubclasses.any {
+            it.simpleName.contains("delete", ignoreCase = true) && it.simpleName.contains("target", ignoreCase = true)
+        })
     }
+
+    private fun normalizedJvmMethodName(name: String) = name.substringBefore('-').substringBefore('$')
 
     @Test
     fun previewAndMissingOrCancelledConfirmationLeaveTheExactScopeUnchanged() {

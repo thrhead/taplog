@@ -111,3 +111,34 @@ same focused command after the type fix. It exited 1 with `BUILD FAILED` at
 cannot be claimed until T007 restores shared test compilation.
 
 `git diff --check` after this fix produced no whitespace output (exit 0).
+
+## Fix round 2 — JVM mangling-safe deletion API contract
+
+The public deletion assertion now normalizes each declared `EventEngine` JVM
+method name by stripping the Kotlin value-class mangling suffix and `$default`
+bridge suffix before comparing the API set. It therefore accepts the permitted
+`deleteScope-uYup2DM` and generated `deleteScope-uYup2DM$default` methods as
+one `deleteScope` API, without relying on erased JVM parameter classes.
+
+It also checks `Command`'s Java sealed permitted subclasses and rejects any
+subclass whose simple name identifies both deletion and Target handling. This
+guards a future command-based standalone Target delete in addition to a direct
+public `EventEngine` method. The check relies only on Java 17 sealed-class
+reflection, the project runtime level; no production reflection support was
+added.
+
+Focused command after this test-only change:
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon \
+  -Djava.net.preferIPv4Stack=true :core:test \
+  --tests 'io.github.thrhead.taplog.core.engine.ManagementDeletionTest' \
+  --offline --console=plain
+```
+
+Actual worker output downloaded Gradle 9.6.0 and started the single-use daemon,
+then the harness returned before compilation or test output. The earlier
+controller focused run after the type fix remains the completed shared compile
+evidence: exit 1 at `:core:compileTestKotlin`, exactly 14 T003 and 6 T005
+unresolved references, no T006 diagnostics, and no tests executed. No PASS is
+claimed.
