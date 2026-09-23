@@ -71,3 +71,34 @@ archive then unarchive. No fix was made because T004 is test-only.
 - T003 remains byte-for-byte untouched and its known RED compilation failure
   is distinguished above from the lifecycle-revision contract now captured by
   T004.
+
+## Fix round 1 (review findings)
+
+Updated only `ManagementDefinitionTest.kt` and this report:
+
+- The post-Event Target-edit case now starts at dataset generation 9, captures
+  the `RecordTarget` after logging, and asserts both generation and that exact
+  relationship remain unchanged after `editTarget`.
+- The Target lifecycle case now starts with a linked `RecordTarget` and dataset
+  generation 11, captures the Record and relationship before Target archival,
+  and asserts that both plus generation are identical after both archive and
+  unarchive.
+
+Focused verification command (unrestricted after the known Gradle sandbox
+network limitation):
+
+```text
+GRADLE_USER_HOME=/tmp/taplog-gradle ./gradlew --no-daemon \
+  -Djava.net.preferIPv4Stack=true :core:test \
+  --tests 'io.github.thrhead.taplog.core.engine.ManagementDefinitionTest' \
+  --console=plain
+```
+
+Result: exit 1 / `BUILD FAILED in 29s`. The command reached
+`:core:compileTestKotlin` and emitted exactly the known T003/T007 dependency:
+14 unresolved references in `ManagementCreationTest.kt` — `CreateRecord` at
+lines 39, 55, 70, 85, 103, 118, 142, 172, 192, 221, 252 and `CreateTarget` at
+lines 206, 225, 256. No T004 diagnostic was emitted and test execution did not
+start because shared test compilation stops first. This remains distinct from
+the T004 target-unarchive revision contract intentionally left RED for later
+core implementation.

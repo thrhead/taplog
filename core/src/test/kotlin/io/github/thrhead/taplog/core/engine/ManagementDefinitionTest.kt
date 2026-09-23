@@ -52,12 +52,14 @@ class ManagementDefinitionTest {
             records = mapOf(record.id to record),
             targets = mapOf(target.id to target),
             relationships = mapOf((record.id to target.id) to RecordTarget(record.id, target.id)),
+            generation = DatasetGeneration(9),
         ))
         val engine = engine(boundary)
 
         assertTrue(engine.apply(LogMoment(record.id, target.id, source = Source.APP)) is EngineResult.Applied)
         val event = boundary.state.events.single()
         val recordAfterEvent = boundary.state.records.getValue(record.id)
+        val relationshipAfterEvent = boundary.state.relationships.getValue(record.id to target.id)
         assertEquals(EngineResult.Applied(), engine.editTarget(target.id, TargetEdit("Glass", "glass")))
 
         val edited = boundary.state.targets.getValue(target.id)
@@ -66,6 +68,8 @@ class ManagementDefinitionTest {
         assertEquals("glass", edited.icon)
         assertEquals(Revision(1), edited.revision)
         assertEquals(recordAfterEvent, boundary.state.records.getValue(record.id))
+        assertEquals(relationshipAfterEvent, boundary.state.relationships.getValue(record.id to target.id))
+        assertEquals(DatasetGeneration(9), boundary.state.generation)
         assertEquals(event, boundary.state.events.single())
         assertEquals("Bottle", event.snapshot.targetName)
         assertEquals("bottle", event.snapshot.targetIcon)
@@ -93,7 +97,13 @@ class ManagementDefinitionTest {
     fun recordAndTargetArchiveUnarchiveAdvanceOnlyTheirOwnRevisions() {
         val record = Record(RecordId("run"), "Run", null, Behavior.MOMENT)
         val target = Target(TargetId("park"), "Park", null)
-        val boundary = Boundary(DomainState(records = mapOf(record.id to record), targets = mapOf(target.id to target)))
+        val relationship = RecordTarget(record.id, target.id)
+        val boundary = Boundary(DomainState(
+            records = mapOf(record.id to record),
+            targets = mapOf(target.id to target),
+            relationships = mapOf((record.id to target.id) to relationship),
+            generation = DatasetGeneration(11),
+        ))
         val engine = engine(boundary)
 
         assertEquals(EngineResult.Applied(revisions = mapOf(record.id.value to Revision(1))), engine.archiveRecord(record.id))
@@ -103,14 +113,21 @@ class ManagementDefinitionTest {
         assertEquals(EngineResult.Applied(revisions = mapOf(record.id.value to Revision(2))), engine.unarchiveRecord(record.id))
         assertEquals(Revision(2), boundary.state.records.getValue(record.id).revision)
         assertEquals(Lifecycle.ACTIVE, boundary.state.records.getValue(record.id).lifecycle)
+        val recordBeforeTargetLifecycle = boundary.state.records.getValue(record.id)
+        val relationshipBeforeTargetLifecycle = boundary.state.relationships.getValue(record.id to target.id)
 
         assertEquals(EngineResult.Applied(), engine.archiveTarget(target.id))
         assertEquals(Revision(1), boundary.state.targets.getValue(target.id).revision)
         assertEquals(Lifecycle.ARCHIVED, boundary.state.targets.getValue(target.id).lifecycle)
-        assertEquals(Revision(2), boundary.state.records.getValue(record.id).revision)
+        assertEquals(recordBeforeTargetLifecycle, boundary.state.records.getValue(record.id))
+        assertEquals(relationshipBeforeTargetLifecycle, boundary.state.relationships.getValue(record.id to target.id))
+        assertEquals(DatasetGeneration(11), boundary.state.generation)
         assertEquals(EngineResult.Applied(), engine.unarchiveTarget(target.id))
         assertEquals(Revision(2), boundary.state.targets.getValue(target.id).revision)
         assertEquals(Lifecycle.ACTIVE, boundary.state.targets.getValue(target.id).lifecycle)
+        assertEquals(recordBeforeTargetLifecycle, boundary.state.records.getValue(record.id))
+        assertEquals(relationshipBeforeTargetLifecycle, boundary.state.relationships.getValue(record.id to target.id))
+        assertEquals(DatasetGeneration(11), boundary.state.generation)
     }
 
     @Test
